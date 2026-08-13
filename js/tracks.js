@@ -48,7 +48,7 @@ export async function fetchYouTubeSuggestions(query) {
   ];
 }
 
-// Public Invidious / Piped YouTube Music Search Engine with Fallbacks
+// Unlimited Multi-Proxy YouTube Video & Music Search Engine (v3.1.0)
 export async function searchYouTubeSongs(query) {
   if (!query || !query.trim()) return [];
   const cleanQuery = query.trim();
@@ -56,14 +56,16 @@ export async function searchYouTubeSongs(query) {
   // 1. Direct YouTube URL or Video ID check
   const directId = extractYouTubeId(cleanQuery);
   if (directId) {
-    return [createYouTubeTrack(directId, 'YouTube Video Track', 'Direct YouTube Link', 'YouTube Stream')];
+    return [createYouTubeTrack(directId, 'YouTube Video Track', 'Direct Link', 'YouTube Stream')];
   }
 
-  // 2. Query Public CORS YouTube Music API Instances
+  // 2. Query High-Capacity Public YouTube Search Endpoints (No filters, return ALL videos!)
   const apis = [
-    `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(cleanQuery)}&filter=music`,
-    `https://api.piped.projectsegfau.lt/search?q=${encodeURIComponent(cleanQuery)}&filter=music`,
-    `https://yt.lemnoslife.com/noKey/search?q=${encodeURIComponent(cleanQuery)}`
+    `https://yt.lemnoslife.com/noKey/search?q=${encodeURIComponent(cleanQuery)}`,
+    `https://inv.tux.pizza/api/v1/search?q=${encodeURIComponent(cleanQuery)}`,
+    `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(cleanQuery)}`,
+    `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(cleanQuery)}`,
+    `https://api.piped.projectsegfau.lt/search?q=${encodeURIComponent(cleanQuery)}`
   ];
 
   for (let apiUrl of apis) {
@@ -75,32 +77,41 @@ export async function searchYouTubeSongs(query) {
         
         const results = [];
         for (let item of items) {
-          const videoId = item.id || (item.url ? item.url.replace('/watch?v=', '') : null) || item.videoId;
+          // Parse videoId across different API payload schemas
+          let videoId = null;
+          if (typeof item.id === 'string' && item.id.length >= 10) videoId = item.id;
+          else if (item.id && item.id.videoId) videoId = item.id.videoId;
+          else if (item.url) videoId = extractYouTubeId(item.url);
+          else if (item.videoId) videoId = item.videoId;
+
           if (videoId && typeof videoId === 'string' && videoId.length >= 10) {
-            results.push({
-              id: 'yt-' + videoId,
-              type: 'youtube',
-              youtubeId: videoId,
-              title: item.title || 'YouTube Track',
-              artist: item.uploaderName || item.channelTitle || item.author || 'YouTube Artist',
-              album: 'YouTube Music Search',
-              duration: item.duration || 210,
-              cover: item.thumbnail || item.thumbnailUrl || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-              src: `https://www.youtube.com/watch?v=${videoId}`,
-              genre: 'YouTube Music'
-            });
+            // Deduplicate
+            if (!results.some(r => r.youtubeId === videoId)) {
+              results.push({
+                id: 'yt-' + videoId,
+                type: 'youtube',
+                youtubeId: videoId,
+                title: item.title || item.snippet?.title || 'YouTube Music',
+                artist: item.uploaderName || item.channelTitle || item.author || item.snippet?.channelTitle || 'YouTube Artist',
+                album: 'YouTube Release',
+                duration: item.duration || 210,
+                cover: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+                src: `https://www.youtube.com/watch?v=${videoId}`,
+                genre: 'YouTube Music'
+              });
+            }
           }
-          if (results.length >= 8) break;
+          if (results.length >= 25) break;
         }
 
         if (results.length > 0) return results;
       }
     } catch (e) {
-      console.warn('Search API query warning:', e);
+      console.warn('[YouTube Search] Proxy API error:', e);
     }
   }
 
-  // Fallback sample results if network is restricted
+  // Fallback results if network is blocked
   return [
     createYouTubeTrack('jfKfPfyJRdk', `${cleanQuery} - Lofi Chill Beats`, 'Lofi Girl', 'YouTube Lofi'),
     createYouTubeTrack('5qap5aO4i9A', `${cleanQuery} - Cyberpunk Synthwave`, 'Lofi Synthwave', 'YouTube Synthwave')

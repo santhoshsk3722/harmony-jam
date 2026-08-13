@@ -1,5 +1,5 @@
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "buildDate": "2026-08-14",
-  "releaseNotes": "Major v3.0 Release - Completely Restructured YouTube Collaborative Music Hub with Instant Autocomplete Search, Genre Filter Chips, Dual YouTube Video/Audio Player, and Sub-50ms Room Sync!"
+  "releaseNotes": "v3.1.0 Release - Upgraded to 5-Proxy High Capacity YouTube Search Engine returning up to 25 YouTube songs per query without restrictive filters!"
 }
