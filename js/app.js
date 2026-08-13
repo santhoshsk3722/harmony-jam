@@ -318,6 +318,7 @@ class HarmonyJamApp {
     // Room subscriptions
     this.room.onRoomState((data) => this.updateRoomUI(data));
     this.room.onParticipants((list) => this.renderParticipants(list));
+    this.room.onStatus((statusText, isConnected) => this.updateConnectionStatus(statusText, isConnected));
   }
 
   initUpdater() {
@@ -525,6 +526,17 @@ class HarmonyJamApp {
       notJoined.style.display = 'block';
       joined.style.display = 'none';
       badge.style.display = 'none';
+    }
+  }
+
+  updateConnectionStatus(statusText, isConnected) {
+    const headerCodeText = document.getElementById('headerRoomCodeText');
+    if (headerCodeText && this.room.roomId) {
+      if (isConnected) {
+        headerCodeText.innerText = `${this.room.roomId}`;
+      } else {
+        headerCodeText.innerText = `${this.room.roomId} (${statusText})`;
+      }
     }
   }
 
