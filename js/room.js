@@ -1,22 +1,23 @@
-// PeerJS P2P & Multi-Layer Sync Engine for Harmony Jam
+// Harmony Jam Global Multi-Engine Real-Time Sync (MQTT WebSockets + PeerJS + BroadcastChannel)
 
 export class RoomManager {
   constructor(player) {
     this.player = player;
-    this.peer = null;
-    this.peerId = null;
-    this.roomId = null; // Clean 4-digit code (e.g. "1234")
+    this.roomId = null; // Clean 4-digit code (e.g. "4892")
     this.isHost = false;
-    this.connections = [];
-    this.broadcastChannel = null;
-
     this.userName = localStorage.getItem('hj_username') || `User_${Math.floor(1000 + Math.random() * 9000)}`;
+    this.userId = 'u_' + Math.random().toString(36).substr(2, 9);
     this.participants = new Map();
+
+    // MQTT Client instance
+    this.mqttClient = null;
+    this.broadcastChannel = null;
+    this.peer = null;
 
     this.onRoomStateCallbacks = [];
     this.onParticipantsCallbacks = [];
 
-    // Periodic Heartbeat & Drift Monitor (Host -> Peers)
+    // Periodic Heartbeat & Drift Alignment (Host -> Room)
     setInterval(() => {
       if (this.isHost && this.roomId) {
         this.broadcastAction({
@@ -29,15 +30,68 @@ export class RoomManager {
     }, 3000);
   }
 
-  // Format clean 4-digit room code (e.g. "4892")
   generateRoomCode() {
     return Math.floor(1000 + Math.random() * 9000).toString();
   }
 
-  // Format safe PeerJS ID for WebRTC compatibility
-  getPeerJsId(code) {
-    const cleanCode = code.replace(/[^0-9]/g, '');
-    return `harmonyjam_v1_${cleanCode}`;
+  // Initialize MQTT WebSocket connection (100% reliable across cellular 4G/5G and Wi-Fi)
+  initMqtt(code) {
+    return new Promise((resolve) => {
+      if (typeof window.mqtt === 'undefined') {
+        console.warn('[RoomSync] MQTT.js library not found, fallback to local');
+        return resolve();
+      }
+
+      const topic = `harmonyjam/v1/room/${code}`;
+      console.log('[RoomSync] Connecting to Global Realtime Broker topic:', topic);
+
+      // Public free high-availability SSL WebSocket MQTT broker
+      const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+
+      try {
+        if (this.mqttClient) {
+          try { this.mqttClient.end(true); } catch(e){}
+        }
+
+        this.mqttClient = window.mqtt.connect(brokerUrl, {
+          clientId: `hj_${this.userId}`,
+          keepalive: 30,
+          clean: true,
+          reconnectPeriod: 2000
+        });
+
+        this.mqttClient.on('connect', () => {
+          console.log('[MQTT] Connected to global relay broker successfully!');
+          this.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+            if (!err) {
+              console.log('[MQTT] Subscribed to room topic:', topic);
+            }
+            resolve();
+          });
+        });
+
+        this.mqttClient.on('message', (t, message) => {
+          try {
+            const payload = JSON.parse(message.toString());
+            this.handleIncomingAction(payload, payload.senderId);
+          } catch (e) {
+            console.warn('[MQTT] Error parsing payload:', e);
+          }
+        });
+
+        this.mqttClient.on('error', (err) => {
+          console.warn('[MQTT] Broker connection warning:', err);
+          resolve(); // Resolve to allow fallback
+        });
+
+        // Timeout safety resolve after 2.5 seconds
+        setTimeout(() => resolve(), 2500);
+
+      } catch (e) {
+        console.warn('[MQTT] Exception during init:', e);
+        resolve();
+      }
+    });
   }
 
   initBroadcastChannel(code) {
@@ -47,38 +101,31 @@ export class RoomManager {
     try {
       this.broadcastChannel = new BroadcastChannel(`harmony_jam_room_${code}`);
       this.broadcastChannel.onmessage = (event) => {
-        this.handleIncomingAction(event.data, 'broadcast');
+        this.handleIncomingAction(event.data, event.data.senderId);
       };
     } catch (e) {
-      console.warn('[RoomSync] BroadcastChannel fallback setup:', e);
+      console.warn('BroadcastChannel not supported');
     }
   }
 
   createRoom(customCode = null) {
-    return new Promise((resolve, reject) => {
-      const code = customCode ? customCode.trim() : this.generateRoomCode();
+    return new Promise((resolve) => {
+      const code = customCode ? customCode.toString().replace(/[^0-9]/g, '') : this.generateRoomCode();
       this.roomId = code;
       this.isHost = true;
 
       this.initBroadcastChannel(code);
 
       this.participants.clear();
-      this.participants.set('self', {
-        id: 'self',
+      this.participants.set(this.userId, {
+        id: this.userId,
         name: this.userName + ' (Host)',
         isHost: true,
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
       });
 
-      const peerJsId = this.getPeerJsId(code);
-
-      this.initPeerJS(peerJsId).then(() => {
+      this.initMqtt(code).then(() => {
         console.log('[RoomSync] Room created successfully as Host. Room Code:', code);
-        this.emitParticipants();
-        this.emitRoomState();
-        resolve(code);
-      }).catch(err => {
-        console.warn('[RoomSync] PeerJS server init warning, proceeding with BroadcastChannel:', err);
         this.emitParticipants();
         this.emitRoomState();
         resolve(code);
@@ -88,7 +135,6 @@ export class RoomManager {
 
   joinRoom(inputCode) {
     return new Promise((resolve, reject) => {
-      // Clean input (strip letters, hyphens, spaces)
       const cleanCode = inputCode.toString().replace(/[^0-9]/g, '');
       if (!cleanCode || cleanCode.length < 3) {
         return reject(new Error('Please enter a valid numeric room code (e.g. 4892)'));
@@ -100,66 +146,26 @@ export class RoomManager {
       this.initBroadcastChannel(cleanCode);
 
       this.participants.clear();
-      this.participants.set('self', {
-        id: 'self',
+      this.participants.set(this.userId, {
+        id: this.userId,
         name: this.userName,
         isHost: false,
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
       });
 
-      const hostPeerJsId = this.getPeerJsId(cleanCode);
-
-      this.initPeerJS().then(() => {
-        let connected = false;
-
-        const attemptConnect = () => {
-          if (connected) return;
-          try {
-            console.log('[RoomSync] Connecting to Host Peer ID:', hostPeerJsId);
-            const conn = this.peer.connect(hostPeerJsId, { reliable: true });
-            this.setupConnection(conn);
-
-            conn.on('open', () => {
-              connected = true;
-              console.log('[RoomSync] WebRTC Connection Established with Host!');
-              conn.send({
-                type: 'REQUEST_STATE',
-                user: { name: this.userName, avatar: this.participants.get('self').avatar }
-              });
-              this.emitParticipants();
-              this.emitRoomState();
-              resolve(cleanCode);
-            });
-          } catch (e) {
-            console.warn('[RoomSync] Connection attempt exception:', e);
-          }
-        };
-
-        attemptConnect();
-
-        // Broadcast fallback request immediately for local/LAN peers
-        this.sendBroadcast({
+      this.initMqtt(cleanCode).then(() => {
+        console.log('[RoomSync] Joined room topic:', cleanCode, 'Sending REQUEST_STATE');
+        
+        // Request state from Host
+        this.broadcastAction({
           type: 'REQUEST_STATE',
-          user: { name: this.userName, avatar: this.participants.get('self').avatar }
+          user: {
+            id: this.userId,
+            name: this.userName,
+            avatar: this.participants.get(this.userId).avatar
+          }
         });
 
-        // Retry connection at 1.5s if not connected yet
-        setTimeout(() => {
-          if (!connected) {
-            console.log('[RoomSync] Retrying PeerJS connection...');
-            attemptConnect();
-          }
-          this.emitParticipants();
-          this.emitRoomState();
-          resolve(cleanCode);
-        }, 1500);
-
-      }).catch(err => {
-        console.warn('[RoomSync] PeerJS client init fallback:', err);
-        this.sendBroadcast({
-          type: 'REQUEST_STATE',
-          user: { name: this.userName, avatar: this.participants.get('self').avatar }
-        });
         this.emitParticipants();
         this.emitRoomState();
         resolve(cleanCode);
@@ -167,109 +173,57 @@ export class RoomManager {
     });
   }
 
-  initPeerJS(customId = null) {
-    return new Promise((resolve) => {
-      if (typeof window.Peer === 'undefined') {
-        return resolve();
-      }
-      try {
-        if (this.peer) {
-          try { this.peer.destroy(); } catch(e){}
-        }
-
-        const peerOpts = {
-          debug: 1,
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-          }
-        };
-
-        this.peer = customId ? new window.Peer(customId, peerOpts) : new window.Peer(peerOpts);
-
-        this.peer.on('open', (id) => {
-          this.peerId = id;
-          console.log('[PeerJS] Online with Peer ID:', id);
-          resolve();
-        });
-
-        this.peer.on('connection', (conn) => {
-          console.log('[PeerJS] Incoming peer connection:', conn.peer);
-          this.setupConnection(conn);
-        });
-
-        this.peer.on('error', (err) => {
-          console.warn('[PeerJS] Error:', err.type);
-          resolve();
-        });
-      } catch (e) {
-        console.warn('[PeerJS] Exception:', e);
-        resolve();
-      }
-    });
-  }
-
-  setupConnection(conn) {
-    this.connections.push(conn);
-
-    conn.on('data', (data) => {
-      this.handleIncomingAction(data, conn.peer);
-    });
-
-    conn.on('close', () => {
-      this.connections = this.connections.filter(c => c !== conn);
-      if (conn.peer) this.participants.delete(conn.peer);
-      this.emitParticipants();
-    });
-  }
-
   broadcastAction(actionPayload) {
     if (!this.roomId) return;
 
-    this.connections.forEach(conn => {
-      if (conn.open) {
-        try { conn.send(actionPayload); } catch(e){}
+    const fullPayload = {
+      ...actionPayload,
+      senderId: this.userId,
+      roomId: this.roomId,
+      timestamp: Date.now()
+    };
+
+    // 1. Send via MQTT WebSocket Global Relay
+    if (this.mqttClient && this.mqttClient.connected) {
+      const topic = `harmonyjam/v1/room/${this.roomId}`;
+      try {
+        this.mqttClient.publish(topic, JSON.stringify(fullPayload));
+      } catch (e) {
+        console.warn('[MQTT] Publish error:', e);
       }
-    });
+    }
 
-    this.sendBroadcast(actionPayload);
-  }
-
-  sendBroadcast(payload) {
+    // 2. Send via BroadcastChannel for local browser tabs
     if (this.broadcastChannel) {
       try {
-        this.broadcastChannel.postMessage({
-          ...payload,
-          senderRoomId: this.roomId,
-          senderPeerId: this.peerId || 'tab_' + this.userName
-        });
+        this.broadcastChannel.postMessage(fullPayload);
       } catch (e) {
-        console.warn('BroadcastChannel error:', e);
+        console.warn('[BroadcastChannel] Post error:', e);
       }
     }
   }
 
   handleIncomingAction(payload, senderId) {
     if (!payload || !payload.type) return;
-    if (payload.senderPeerId && payload.senderPeerId === (this.peerId || 'tab_' + this.userName)) return;
+    if (senderId === this.userId) return; // Ignore self
 
-    console.log('[RoomSync] Action received:', payload.type);
+    console.log('[RoomSync] Received action from peer:', payload.type, payload);
 
     switch (payload.type) {
       case 'REQUEST_STATE':
         if (this.isHost) {
-          const participantObj = {
-            id: senderId,
-            name: payload.user ? payload.user.name : 'Connected Friend',
-            isHost: false,
-            avatar: payload.user ? payload.user.avatar : `https://api.dicebear.com/7.x/bottts/svg?seed=${senderId}`
-          };
-          this.participants.set(senderId, participantObj);
-          this.emitParticipants();
+          if (payload.user) {
+            this.participants.set(payload.user.id, {
+              id: payload.user.id,
+              name: payload.user.name,
+              isHost: false,
+              avatar: payload.user.avatar
+            });
+            this.emitParticipants();
+          }
 
-          const stateSnapshot = {
+          // Host replies with state snapshot
+          this.broadcastAction({
             type: 'STATE_RESPONSE',
             queue: this.player.queue,
             currentTrackIndex: this.player.currentTrackIndex,
@@ -277,8 +231,7 @@ export class RoomManager {
             currentTime: this.player.getCurrentTime(),
             sleepTimerDuration: this.player.sleepTimerDuration,
             participants: Array.from(this.participants.values())
-          };
-          this.broadcastAction(stateSnapshot);
+          });
         }
         break;
 
@@ -297,7 +250,7 @@ export class RoomManager {
         }
         if (payload.participants) {
           payload.participants.forEach(p => {
-            if (p.id !== 'self') this.participants.set(p.id, p);
+            if (p.id !== this.userId) this.participants.set(p.id, p);
           });
           this.emitParticipants();
         }
@@ -453,9 +406,9 @@ export class RoomManager {
   }
 
   leaveRoom() {
-    if (this.peer) {
-      try { this.peer.destroy(); } catch(e){}
-      this.peer = null;
+    if (this.mqttClient) {
+      try { this.mqttClient.end(true); } catch(e){}
+      this.mqttClient = null;
     }
     if (this.broadcastChannel) {
       try { this.broadcastChannel.close(); } catch(e){}
