@@ -1,5 +1,5 @@
 {
-  "version": "2.3.0",
+  "version": "2.4.0",
   "buildDate": "2026-08-14",
-  "releaseNotes": "v2.3.0 Release - Added Direct In-App YouTube Music Search! Search any song, artist, or hit directly inside the app and add to shared Jam Room queue."
+  "releaseNotes": "v2.4.0 Major Release - Instant YouTube Autosuggest Dropdown, Fixed YouTube Audio Seeking & Zero Network Lag Engine, plus Featured Albums Home Showcase!"
 }

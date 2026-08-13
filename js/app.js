@@ -1,7 +1,7 @@
 import { MusicPlayer } from './player.js';
 import { RoomManager } from './room.js';
 import { AppUpdater } from './updater.js';
-import { DEFAULT_TRACKS, createCustomTrack, createLocalFileTrack, searchYouTubeSongs } from './tracks.js';
+import { DEFAULT_TRACKS, createCustomTrack, createLocalFileTrack, searchYouTubeSongs, fetchYouTubeSuggestions } from './tracks.js';
 
 class HarmonyJamApp {
   constructor() {
@@ -33,14 +33,20 @@ class HarmonyJamApp {
       });
     });
 
-    // --- DIRECT YOUTUBE SEARCH EVENT LISTENERS ---
+    // --- DIRECT YOUTUBE SEARCH & INSTANT AUTOSUGGEST (v2.4.0) ---
     const ytSearchBtn = document.getElementById('ytSearchBtn');
     const ytSearchInput = document.getElementById('ytSearchInput');
+    const ytSuggestDropdown = document.getElementById('ytSuggestDropdown');
     const closeSearchBtn = document.getElementById('closeSearchBtn');
 
-    const handleYtSearch = async () => {
-      const query = ytSearchInput.value.trim();
+    let suggestDebounceTimer = null;
+
+    const handleYtSearch = async (queryText = null) => {
+      const query = queryText || ytSearchInput.value.trim();
       if (!query) return;
+
+      if (ytSuggestDropdown) ytSuggestDropdown.classList.remove('active');
+      ytSearchInput.value = query;
 
       ytSearchBtn.innerText = 'Searching...';
       try {
@@ -54,8 +60,38 @@ class HarmonyJamApp {
       }
     };
 
-    if (ytSearchBtn) ytSearchBtn.addEventListener('click', handleYtSearch);
+    if (ytSearchBtn) ytSearchBtn.addEventListener('click', () => handleYtSearch());
+
     if (ytSearchInput) {
+      // 200ms Instant Debounced Autosuggest
+      ytSearchInput.addEventListener('input', () => {
+        const query = ytSearchInput.value.trim();
+        if (suggestDebounceTimer) clearTimeout(suggestDebounceTimer);
+
+        if (!query || query.length < 2) {
+          if (ytSuggestDropdown) ytSuggestDropdown.classList.remove('active');
+          return;
+        }
+
+        suggestDebounceTimer = setTimeout(async () => {
+          const suggestions = await fetchYouTubeSuggestions(query);
+          if (suggestions && suggestions.length > 0 && ytSuggestDropdown) {
+            ytSuggestDropdown.innerHTML = '';
+            suggestions.forEach(item => {
+              const div = document.createElement('div');
+              div.className = 'suggest-item';
+              div.innerHTML = `<i data-lucide="music" style="width:14px;"></i> <span>${item}</span>`;
+              div.addEventListener('click', () => handleYtSearch(item));
+              ytSuggestDropdown.appendChild(div);
+            });
+            ytSuggestDropdown.classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
+          } else {
+            if (ytSuggestDropdown) ytSuggestDropdown.classList.remove('active');
+          }
+        }, 200);
+      });
+
       ytSearchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -63,6 +99,14 @@ class HarmonyJamApp {
         }
       });
     }
+
+    // Hide dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (ytSuggestDropdown && !ytSuggestDropdown.contains(e.target) && e.target !== ytSearchInput) {
+        ytSuggestDropdown.classList.remove('active');
+      }
+    });
+
     if (closeSearchBtn) {
       closeSearchBtn.addEventListener('click', () => {
         document.getElementById('searchResultsSection').style.display = 'none';
@@ -505,6 +549,7 @@ class HarmonyJamApp {
 
   renderTracksGrid() {
     const grid = document.getElementById('tracksGrid');
+    if (!grid) return;
     grid.innerHTML = '';
 
     DEFAULT_TRACKS.forEach((track, index) => {
@@ -514,13 +559,14 @@ class HarmonyJamApp {
       card.innerHTML = `
         <div class="card-img-wrapper">
           <img src="${track.cover}" alt="${track.title}" loading="lazy">
-          ${isYt ? '<span style="position:absolute; top:6px; left:6px; background:#ff0000; color:#fff; font-size:0.65rem; font-weight:800; padding:2px 6px; border-radius:4px; z-index:2;">YOUTUBE</span>' : ''}
+          ${isYt ? '<span style="position:absolute; top:6px; left:6px; background:#ff0000; color:#fff; font-size:0.65rem; font-weight:800; padding:2px 6px; border-radius:4px; z-index:2;">YOUTUBE</span>' : '<span style="position:absolute; top:6px; left:6px; background:rgba(0,0,0,0.7); color:var(--accent-green-bright); font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; z-index:2;">AUDIO</span>'}
           <button class="play-hover-btn">
             <i data-lucide="play"></i>
           </button>
         </div>
         <div class="card-title">${track.title}</div>
-        <div class="card-subtitle">${track.artist}</div>
+        <div class="card-subtitle" style="font-weight:600; color:var(--text-primary);">${track.artist}</div>
+        <div style="font-size:0.72rem; color:var(--accent-green-bright); margin-top:2px;">${track.album || 'Featured Playlist'}</div>
       `;
 
       card.addEventListener('click', () => {

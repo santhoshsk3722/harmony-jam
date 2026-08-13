@@ -242,11 +242,20 @@ export class MusicPlayer {
 
     if (this.currentEngine === 'youtube') {
       if (this.ytReady && this.ytPlayer && typeof this.ytPlayer.seekTo === 'function') {
-        this.ytPlayer.seekTo(seconds, true);
+        try {
+          this.ytPlayer.seekTo(seconds, true);
+          if (this.isPlaying && typeof this.ytPlayer.playVideo === 'function') {
+            this.ytPlayer.playVideo();
+          }
+        } catch (e) {
+          console.warn('YouTube seek warning:', e);
+        }
       }
     } else {
-      if (this.audio.duration) {
-        this.audio.currentTime = seconds;
+      if (this.audio && isFinite(seconds)) {
+        try {
+          this.audio.currentTime = seconds;
+        } catch (e) {}
       }
     }
     this.emitTimeUpdate();

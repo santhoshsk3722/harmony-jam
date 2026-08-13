@@ -367,20 +367,27 @@ export class RoomManager {
       updatedAt: Date.now()
     };
 
-    // Broadcast to local tabs via BroadcastChannel
+    // Broadcast to local tabs via BroadcastChannel immediately
     if (this.broadcastChannel) {
       try { this.broadcastChannel.postMessage({ type: 'SYNC_PLAYBACK', playback: payload }); } catch(e){}
     }
 
-    try {
-      await fetch(`${this.firebaseBaseUrl}/${this.roomId}/playback.json`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } catch (e) {
-      console.warn('[Realtime] Failed to update playback:', e);
+    // Throttle HTTP fetch updates to max 1 per 250ms
+    if (this.playbackThrottleTimer) {
+      clearTimeout(this.playbackThrottleTimer);
     }
+
+    this.playbackThrottleTimer = setTimeout(async () => {
+      try {
+        await fetch(`${this.firebaseBaseUrl}/${this.roomId}/playback.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {
+        console.warn('[Realtime] Failed to update playback:', e);
+      }
+    }, 250);
   }
 
   async updateQueueState(queueArray) {
