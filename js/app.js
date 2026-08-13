@@ -220,6 +220,18 @@ class HarmonyJamApp {
       document.getElementById('qrModal').classList.remove('active');
     });
 
+    // --- EMOJI REACTION EVENT LISTENERS (v2.1.0 Feature) ---
+    const emojiBtns = document.querySelectorAll('.emoji-btn');
+    emojiBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const emoji = btn.getAttribute('data-emoji');
+        if (emoji) {
+          this.room.sendEmojiReaction(emoji);
+          this.spawnFloatingEmoji(emoji, 'You');
+        }
+      });
+    });
+
     // Auto Join if room in URL params
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
@@ -319,6 +331,33 @@ class HarmonyJamApp {
     this.room.onRoomState((data) => this.updateRoomUI(data));
     this.room.onParticipants((list) => this.renderParticipants(list));
     this.room.onStatus((statusText, isConnected) => this.updateConnectionStatus(statusText, isConnected));
+    this.room.onEmoji((emoji, senderName) => this.spawnFloatingEmoji(emoji, senderName));
+  }
+
+  spawnFloatingEmoji(emoji, senderName = 'Friend') {
+    const container = document.getElementById('app');
+    if (!container) return;
+
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position: absolute;
+      bottom: 90px;
+      right: ${20 + Math.random() * 60}px;
+      font-size: 2rem;
+      z-index: 300;
+      pointer-events: none;
+      animation: floatUp 2.2s ease-out forwards;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    `;
+    el.innerHTML = `
+      <span>${emoji}</span>
+      <span style="font-size: 0.65rem; color: #fff; background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 8px; font-weight: 700;">${senderName}</span>
+    `;
+
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2300);
   }
 
   initUpdater() {

@@ -451,9 +451,36 @@ export class RoomManager {
     this.emitParticipants();
   }
 
+  async sendEmojiReaction(emoji) {
+    if (!this.roomId) return;
+    const payload = {
+      emoji: emoji,
+      senderId: this.userId,
+      senderName: this.userName,
+      timestamp: Date.now()
+    };
+    if (this.broadcastChannel) {
+      try { this.broadcastChannel.postMessage({ type: 'EMOJI_REACTION', reaction: payload }); } catch(e){}
+    }
+    try {
+      await fetch(`${this.firebaseBaseUrl}/${this.roomId}/reaction.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {}
+  }
+
   onRoomState(cb) { this.onRoomStateCallbacks.push(cb); }
   onParticipants(cb) { this.onParticipantsCallbacks.push(cb); }
   onStatus(cb) { this.onStatusCallbacks.push(cb); }
+  onEmoji(cb) { this.onEmojiCallbacks = this.onEmojiCallbacks || []; this.onEmojiCallbacks.push(cb); }
+
+  emitEmoji(emoji, senderName) {
+    if (this.onEmojiCallbacks) {
+      this.onEmojiCallbacks.forEach(cb => cb(emoji, senderName));
+    }
+  }
 
   emitRoomState() {
     const data = {
