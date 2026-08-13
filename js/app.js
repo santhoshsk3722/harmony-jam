@@ -114,6 +114,17 @@ class HarmonyJamApp {
       });
     }
 
+    // --- GENRE FILTER CHIPS (v3.0.0 Feature) ---
+    const genreChips = document.querySelectorAll('.genre-chip');
+    genreChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        genreChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const selectedGenre = chip.getAttribute('data-genre');
+        this.renderTracksGrid(selectedGenre);
+      });
+    });
+
     // --- FULL PLAYER DRAWER EXPAND / CLOSE ---
     const expandArea = document.getElementById('expandPlayerArea');
     const closePlayerBtn = document.getElementById('closePlayerBtn');
@@ -547,12 +558,23 @@ class HarmonyJamApp {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  renderTracksGrid() {
+  renderTracksGrid(genreFilter = 'all') {
     const grid = document.getElementById('tracksGrid');
     if (!grid) return;
     grid.innerHTML = '';
 
-    DEFAULT_TRACKS.forEach((track, index) => {
+    const filteredTracks = DEFAULT_TRACKS.filter(track => {
+      if (!genreFilter || genreFilter === 'all') return true;
+      return track.genre && track.genre.toLowerCase() === genreFilter.toLowerCase();
+    });
+
+    if (filteredTracks.length === 0) {
+      grid.innerHTML = `<div style="color:var(--text-secondary); padding:16px; grid-column:span 2;">No tracks found for this genre. Try another filter!</div>`;
+      return;
+    }
+
+    filteredTracks.forEach((track) => {
+      const globalIndex = DEFAULT_TRACKS.findIndex(t => t.id === track.id);
       const card = document.createElement('div');
       card.className = 'music-card';
       const isYt = track.type === 'youtube';
@@ -570,10 +592,11 @@ class HarmonyJamApp {
       `;
 
       card.addEventListener('click', () => {
+        const targetIndex = globalIndex >= 0 ? globalIndex : 0;
         if (this.room.roomId) {
-          this.room.syncTrackChange(index);
+          this.room.syncTrackChange(targetIndex);
         } else {
-          this.player.loadTrack(index, true);
+          this.player.loadTrack(targetIndex, true);
         }
       });
 

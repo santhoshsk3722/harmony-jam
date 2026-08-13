@@ -248,6 +248,28 @@ body {
   font-weight: 600;
 }
 
+/* Genre Filter Chips (v3.0.0) */
+.genre-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  flex-shrink: 0;
+}
+
+.genre-chip:hover, .genre-chip.active {
+  background: var(--accent-green);
+  color: #000;
+  border-color: var(--accent-green);
+  box-shadow: 0 0 12px rgba(30, 215, 96, 0.4);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
