@@ -7,16 +7,27 @@ export class RoomManager {
     this.peerId = null;
     this.roomId = null;
     this.isHost = false;
-    this.connections = []; // PeerJS DataConnections
+    this.connections = [];
     this.broadcastChannel = null;
 
     this.userName = localStorage.getItem('hj_username') || `User_${Math.floor(1000 + Math.random() * 9000)}`;
-    this.participants = new Map(); // id -> { name, isHost, avatar }
+    this.participants = new Map();
 
     this.onRoomStateCallbacks = [];
     this.onParticipantsCallbacks = [];
 
     this.initBroadcastChannel();
+
+    // Auto Periodic Drift Monitor (Host -> Peers)
+    setInterval(() => {
+      if (this.isHost && this.roomId && this.player.isPlaying) {
+        this.broadcastAction({
+          type: 'DRIFT_PULSE',
+          currentTime: this.player.getCurrentTime(),
+          trackIndex: this.player.currentTrackIndex
+        });
+      }
+    }, 4000);
   }
 
   initBroadcastChannel() {
@@ -26,24 +37,21 @@ export class RoomManager {
         this.handleIncomingAction(event.data, 'broadcast');
       };
     } catch (e) {
-      console.warn('BroadcastChannel not supported in this environment');
+      console.warn('BroadcastChannel fallback setup');
     }
   }
 
-  // Generate clean 6-character room code (e.g. HJ-9412)
   generateRoomCode() {
     const num = Math.floor(1000 + Math.random() * 9000);
     return `HJ-${num}`;
   }
 
-  // Create a new Jam Room as Host
   createRoom() {
     return new Promise((resolve, reject) => {
       const code = this.generateRoomCode();
       this.roomId = code;
       this.isHost = true;
 
-      // Add self to participants
       this.participants.clear();
       this.participants.set('self', {
         id: 'self',
@@ -60,7 +68,6 @@ export class RoomManager {
     });
   }
 
-  // Join an existing room via Code
   joinRoom(code) {
     return new Promise((resolve, reject) => {
       const formattedCode = code.trim().toUpperCase();
@@ -75,14 +82,11 @@ export class RoomManager {
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
       });
 
-      // Connect via PeerJS or BroadcastChannel
       this.initPeerJS().then(() => {
         const conn = this.peer.connect(formattedCode);
         this.setupConnection(conn);
 
         conn.on('open', () => {
-          console.log('[P2P] Connected to Host:', formattedCode);
-          // Request full state from host
           conn.send({
             type: 'REQUEST_STATE',
             user: { name: this.userName, avatar: this.participants.get('self').avatar }
@@ -92,17 +96,14 @@ export class RoomManager {
           resolve(formattedCode);
         });
 
-        conn.on('error', (err) => {
-          console.warn('[P2P] Connection error:', err);
-          // Fallback multi-tab join notification via BroadcastChannel
+        conn.on('error', () => {
           this.sendBroadcast({
             type: 'REQUEST_STATE',
             user: { name: this.userName, avatar: this.participants.get('self').avatar }
           });
           resolve(formattedCode);
         });
-      }).catch(err => {
-        console.warn('PeerJS init failed, falling back to BroadcastChannel:', err);
+      }).catch(() => {
         this.sendBroadcast({
           type: 'REQUEST_STATE',
           user: { name: this.userName, avatar: this.participants.get('self').avatar }
@@ -113,32 +114,26 @@ export class RoomManager {
   }
 
   initPeerJS(customId = null) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (typeof window.Peer === 'undefined') {
-        console.warn('PeerJS library script not loaded, using local BroadcastChannel fallback.');
         return resolve();
       }
-
       try {
         this.peer = customId ? new window.Peer(customId) : new window.Peer();
 
         this.peer.on('open', (id) => {
           this.peerId = id;
-          console.log('[P2P] PeerJS Ready with ID:', id);
           resolve();
         });
 
         this.peer.on('connection', (conn) => {
-          console.log('[P2P] Incoming connection from peer:', conn.peer);
           this.setupConnection(conn);
         });
 
-        this.peer.on('error', (err) => {
-          console.warn('[P2P] PeerJS server error:', err.type);
-          resolve(); // Resolve anyway to allow fallback local BroadcastChannel
+        this.peer.on('error', () => {
+          resolve();
         });
       } catch (e) {
-        console.warn('[P2P] PeerJS init exception:', e);
         resolve();
       }
     });
@@ -158,18 +153,15 @@ export class RoomManager {
     });
   }
 
-  // Broadcast action payload to all connected peers & local BroadcastChannel
   broadcastAction(actionPayload) {
-    if (!this.roomId) return; // Not in a room
+    if (!this.roomId) return;
 
-    // 1. Send via PeerJS connections
     this.connections.forEach(conn => {
       if (conn.open) {
         conn.send(actionPayload);
       }
     });
 
-    // 2. Send via BroadcastChannel for same-device tabs
     this.sendBroadcast(actionPayload);
   }
 
@@ -182,21 +174,20 @@ export class RoomManager {
           senderPeerId: this.peerId || 'tab_' + this.userName
         });
       } catch (e) {
-        console.warn('BroadcastChannel send error:', e);
+        console.warn('BroadcastChannel error:', e);
       }
     }
   }
 
   handleIncomingAction(payload, senderId) {
     if (!payload || !payload.type) return;
-    if (payload.senderPeerId && payload.senderPeerId === (this.peerId || 'tab_' + this.userName)) return; // Ignore self
+    if (payload.senderPeerId && payload.senderPeerId === (this.peerId || 'tab_' + this.userName)) return;
 
-    console.log('[RoomSync] Received action:', payload.type, payload);
+    console.log('[RoomSync] Action received:', payload.type, payload);
 
     switch (payload.type) {
       case 'REQUEST_STATE':
         if (this.isHost) {
-          // Add newly joined user
           this.participants.set(senderId, {
             id: senderId,
             name: payload.user.name,
@@ -205,13 +196,12 @@ export class RoomManager {
           });
           this.emitParticipants();
 
-          // Send current player state snapshot to joiner
           const stateSnapshot = {
             type: 'STATE_RESPONSE',
             queue: this.player.queue,
             currentTrackIndex: this.player.currentTrackIndex,
             isPlaying: this.player.isPlaying,
-            currentTime: this.player.audio.currentTime || 0,
+            currentTime: this.player.getCurrentTime(),
             sleepTimerDuration: this.player.sleepTimerDuration,
             participants: Array.from(this.participants.values())
           };
@@ -224,7 +214,7 @@ export class RoomManager {
           this.player.queue = payload.queue;
           this.player.currentTrackIndex = payload.currentTrackIndex;
           this.player.loadTrack(payload.currentTrackIndex, payload.isPlaying);
-          if (payload.currentTime) {
+          if (payload.currentTime && payload.currentTime > 0) {
             this.player.seek(payload.currentTime);
           }
           if (payload.sleepTimerDuration) {
@@ -241,11 +231,22 @@ export class RoomManager {
         break;
 
       case 'SYNC_PLAY':
+        // 1. Switch track ONLY if track index changed
+        if (payload.trackIndex !== undefined && payload.trackIndex !== this.player.currentTrackIndex) {
+          this.player.loadTrack(payload.trackIndex, true);
+        }
+
+        // 2. Play if not playing
         if (!this.player.isPlaying) {
           this.player.play();
         }
-        if (payload.currentTime && Math.abs((this.player.audio.currentTime || 0) - payload.currentTime) > 1.5) {
-          this.player.seek(payload.currentTime);
+
+        // 3. Align position if drift > 1.2 seconds and payload position is valid
+        if (payload.currentTime !== undefined && payload.currentTime >= 0) {
+          const diff = Math.abs(this.player.getCurrentTime() - payload.currentTime);
+          if (diff > 1.2) {
+            this.player.seek(payload.currentTime);
+          }
         }
         break;
 
@@ -253,14 +254,27 @@ export class RoomManager {
         if (this.player.isPlaying) {
           this.player.pause();
         }
-        if (payload.currentTime) {
-          this.player.seek(payload.currentTime);
+        if (payload.currentTime !== undefined && payload.currentTime >= 0) {
+          const diff = Math.abs(this.player.getCurrentTime() - payload.currentTime);
+          if (diff > 1.2) {
+            this.player.seek(payload.currentTime);
+          }
         }
         break;
 
       case 'SYNC_SEEK':
-        if (payload.currentTime !== undefined) {
+        if (payload.currentTime !== undefined && payload.currentTime >= 0) {
           this.player.seek(payload.currentTime);
+        }
+        break;
+
+      case 'DRIFT_PULSE':
+        if (payload.trackIndex === this.player.currentTrackIndex && payload.currentTime !== undefined) {
+          const drift = Math.abs(this.player.getCurrentTime() - payload.currentTime);
+          if (drift > 1.5) {
+            console.log('[Sync] Aligning drift:', drift, 'sec');
+            this.player.seek(payload.currentTime);
+          }
         }
         break;
 
@@ -273,7 +287,9 @@ export class RoomManager {
       case 'SYNC_QUEUE':
         if (payload.queue) {
           this.player.queue = payload.queue;
-          this.player.currentTrackIndex = payload.currentTrackIndex !== undefined ? payload.currentTrackIndex : this.player.currentTrackIndex;
+          if (payload.currentTrackIndex !== undefined) {
+            this.player.currentTrackIndex = payload.currentTrackIndex;
+          }
           this.player.emitQueueChange();
         }
         break;
@@ -286,13 +302,12 @@ export class RoomManager {
     }
   }
 
-  // --- CONTROLLER METHODS (Triggered when user clicks Play/Pause/Skip/Seek in room) ---
-
   syncPlay() {
     this.player.play();
     this.broadcastAction({
       type: 'SYNC_PLAY',
-      currentTime: this.player.audio.currentTime || 0
+      trackIndex: this.player.currentTrackIndex,
+      currentTime: this.player.getCurrentTime()
     });
   }
 
@@ -300,7 +315,8 @@ export class RoomManager {
     this.player.pause();
     this.broadcastAction({
       type: 'SYNC_PAUSE',
-      currentTime: this.player.audio.currentTime || 0
+      trackIndex: this.player.currentTrackIndex,
+      currentTime: this.player.getCurrentTime()
     });
   }
 
@@ -316,6 +332,7 @@ export class RoomManager {
     this.player.seek(seconds);
     this.broadcastAction({
       type: 'SYNC_SEEK',
+      trackIndex: this.player.currentTrackIndex,
       currentTime: seconds
     });
   }
@@ -323,9 +340,9 @@ export class RoomManager {
   syncTrackChange(index) {
     this.player.loadTrack(index, true);
     this.broadcastAction({
-      type: 'SYNC_TRACK',
+      type: 'SYNC_PLAY',
       trackIndex: index,
-      isPlaying: true
+      currentTime: 0
     });
   }
 
@@ -336,7 +353,7 @@ export class RoomManager {
   }
 
   syncPrevTrack() {
-    if (this.player.audio.currentTime > 3) {
+    if (this.player.getCurrentTime() > 3) {
       this.syncSeek(0);
       return;
     }

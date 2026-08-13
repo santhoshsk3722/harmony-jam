@@ -125,7 +125,8 @@ class HarmonyJamApp {
           this.player.addToQueue(track);
         }
         customUrlInput.value = '';
-        alert('Custom Audio Track added to Queue!');
+        this.renderQueue();
+        alert(`Track "${track.title}" added to Queue!`);
       }
     });
 
@@ -275,6 +276,10 @@ class HarmonyJamApp {
     document.querySelectorAll('.tab-pane').forEach(pane => {
       pane.classList.toggle('active', pane.id === tabId);
     });
+
+    if (tabId === 'tabQueue') {
+      this.renderQueue();
+    }
   }
 
   initSubscriptions() {
@@ -334,9 +339,11 @@ class HarmonyJamApp {
     DEFAULT_TRACKS.forEach((track, index) => {
       const card = document.createElement('div');
       card.className = 'music-card';
+      const isYt = track.type === 'youtube';
       card.innerHTML = `
         <div class="card-img-wrapper">
           <img src="${track.cover}" alt="${track.title}" loading="lazy">
+          ${isYt ? '<span style="position:absolute; top:6px; left:6px; background:#ff0000; color:#fff; font-size:0.65rem; font-weight:800; padding:2px 6px; border-radius:4px; z-index:2;">YOUTUBE</span>' : ''}
           <button class="play-hover-btn">
             <i data-lucide="play"></i>
           </button>
@@ -370,6 +377,7 @@ class HarmonyJamApp {
 
     this.player.queue.forEach((track, idx) => {
       const isCurrent = idx === this.player.currentTrackIndex;
+      const isYt = track.type === 'youtube';
       const item = document.createElement('div');
       item.className = `queue-item ${isCurrent ? 'active-track' : ''}`;
       item.innerHTML = `
@@ -377,7 +385,7 @@ class HarmonyJamApp {
           <img src="${track.cover}" class="queue-thumb">
           <div class="queue-details">
             <div class="queue-title">${track.title} ${isCurrent ? '<span style="color: var(--accent-green-bright); font-size: 0.75rem;">(Now Playing)</span>' : ''}</div>
-            <div class="queue-artist">${track.artist}</div>
+            <div class="queue-artist">${isYt ? '<span style="color:#ff4d4d; font-size:0.72rem; font-weight:700; margin-right:4px;">▶ YouTube</span>' : ''}${track.artist}</div>
           </div>
         </div>
         <button class="icon-btn remove-btn" style="width: 32px; height: 32px; border: none; background: transparent;" title="Remove">
