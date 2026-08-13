@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "buildDate": "2026-08-14",
-  "releaseNotes": "v2.1.0 Update - Added Live Room Chat, Floating Emoji Reactions (❤️, 🔥, 🎵, 🎉), and Equalizer Presets!"
+  "releaseNotes": "v2.2.0 Live Over-The-Air (OTA) Update System - Automatic GitHub commit polling every 15 seconds with 1-click Hard Refresh & Cache Purge!"
 }

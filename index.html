@@ -345,26 +345,26 @@
 
     <!-- GitHub Update Banner / Modal -->
     <div class="modal-backdrop" id="updateModal">
-      <div class="modal-sheet">
+      <div class="modal-sheet" style="border: 2px solid var(--accent-green);">
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-          <div style="background: var(--accent-green); color: #000; padding: 10px; border-radius: 50%;">
-            <i data-lucide="sparkles"></i>
+          <div style="background: var(--accent-green); color: #000; padding: 12px; border-radius: 50%; box-shadow: 0 0 16px var(--accent-green);">
+            <i data-lucide="zap"></i>
           </div>
           <div>
-            <h3 style="font-size: 1.1rem; font-weight: 700;" id="updateModalTitle">New Update Available!</h3>
-            <p style="font-size: 0.8rem; color: var(--accent-green-bright);" id="updateModalSubtitle">v1.1.0 Ready</p>
+            <h3 style="font-size: 1.15rem; font-weight: 800;" id="updateModalTitle">✨ New GitHub Push Deployed!</h3>
+            <p style="font-size: 0.82rem; color: var(--accent-green-bright); font-weight: 600;" id="updateModalSubtitle">New code update ready to install</p>
           </div>
         </div>
         
-        <div style="background: rgba(255,255,255,0.04); border-radius: 8px; padding: 12px; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 16px; max-height: 120px; overflow-y: auto;" id="updateChangelog">
-          - New feature updates deployed from GitHub!
+        <div style="background: rgba(255,255,255,0.05); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 16px; max-height: 120px; overflow-y: auto;" id="updateChangelog">
+          - New feature updates deployed from GitHub repository!
         </div>
 
-        <button class="action-btn" id="applyUpdateBtn" style="width: 100%; justify-content: center; padding: 14px; font-size: 0.95rem; margin-bottom: 8px;">
-          <i data-lucide="refresh-cw"></i> Update & Reload Now
+        <button class="action-btn" id="applyUpdateBtn" style="width: 100%; justify-content: center; padding: 16px; font-size: 1rem; margin-bottom: 8px; background: linear-gradient(90deg, #1db954 0%, #1ed760 100%); color: #000; font-weight: 800; border-radius: 12px; box-shadow: 0 4px 18px rgba(30, 215, 96, 0.4);">
+          <i data-lucide="refresh-cw"></i> ⚡ Hard Refresh & Update Now
         </button>
         <button class="action-btn" id="dismissUpdateBtn" style="width: 100%; justify-content: center; background: transparent; color: var(--text-secondary);">
-          Later
+          Dismiss for now
         </button>
       </div>
     </div>
@@ -372,6 +372,6 @@
   </div>
 
   <!-- Application Logic Modules -->
-  <script type="module" src="js/app.js?v=2.1.0"></script>
+  <script type="module" src="js/app.js?v=2.2.0"></script>
 </body>
 </html>
