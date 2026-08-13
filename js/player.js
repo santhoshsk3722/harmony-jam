@@ -1,0 +1,313 @@
+import { DEFAULT_TRACKS } from './tracks.js';
+
+export class MusicPlayer {
+  constructor() {
+    this.audio = new Audio();
+    this.audio.crossOrigin = 'anonymous';
+
+    this.tracks = [...DEFAULT_TRACKS];
+    this.queue = [...DEFAULT_TRACKS];
+    this.currentTrackIndex = 0;
+    this.isPlaying = false;
+
+    // Individual Local Volume (0 to 1) - Saved locally per user device
+    const savedVol = localStorage.getItem('hj_individual_volume');
+    this.volume = savedVol !== null ? parseFloat(savedVol) : 0.8;
+    this.audio.volume = this.volume;
+    this.isMuted = false;
+
+    // Sleep Timer
+    this.sleepTimerDuration = 0; // seconds remaining
+    this.sleepTimerInterval = null;
+    this.sleepTimerOriginalVolume = this.volume;
+
+    // Callbacks
+    this.onTrackChangeCallbacks = [];
+    this.onStateChangeCallbacks = [];
+    this.onQueueChangeCallbacks = [];
+    this.onTimeUpdateCallbacks = [];
+    this.onSleepTimerCallbacks = [];
+
+    // Web Audio API Visualizer setup
+    this.audioCtx = null;
+    this.analyser = null;
+    this.sourceNode = null;
+
+    this.initAudioEvents();
+  }
+
+  initAudioEvents() {
+    this.audio.addEventListener('ended', () => {
+      this.playNext(true); // Auto next when track ends
+    });
+
+    this.audio.addEventListener('timeupdate', () => {
+      this.emitTimeUpdate();
+    });
+
+    this.audio.addEventListener('loadedmetadata', () => {
+      if (this.currentTrack) {
+        this.currentTrack.duration = Math.floor(this.audio.duration) || this.currentTrack.duration || 0;
+        this.emitStateChange();
+      }
+    });
+
+    this.audio.addEventListener('error', (e) => {
+      console.warn('Audio playback error:', e);
+    });
+  }
+
+  initVisualizer(canvasElement) {
+    if (!canvasElement) return;
+    this.canvas = canvasElement;
+    this.canvasCtx = canvasElement.getContext('2d');
+
+    const setupAudioCtx = () => {
+      if (!this.audioCtx) {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.audioCtx = new AudioContext();
+          this.analyser = this.audioCtx.createAnalyser();
+          this.analyser.fftSize = 64;
+          this.sourceNode = this.audioCtx.createMediaElementSource(this.audio);
+          this.sourceNode.connect(this.analyser);
+          this.analyser.connect(this.audioCtx.destination);
+          this.drawVisualizer();
+        } catch (e) {
+          console.warn('Web Audio API Visualizer fallback mode:', e);
+        }
+      }
+    };
+
+    window.addEventListener('click', setupAudioCtx, { once: true });
+    window.addEventListener('touchstart', setupAudioCtx, { once: true });
+  }
+
+  drawVisualizer() {
+    if (!this.analyser || !this.canvasCtx) return;
+    requestAnimationFrame(() => this.drawVisualizer());
+
+    const bufferLength = this.analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    this.analyser.getByteFrequencyData(dataArray);
+
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    this.canvasCtx.clearRect(0, 0, width, height);
+
+    const barWidth = (width / bufferLength) * 1.8;
+    let x = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+      const barHeight = (dataArray[i] / 255) * height * 0.85;
+      
+      const gradient = this.canvasCtx.createLinearGradient(0, height, 0, 0);
+      gradient.addColorStop(0, 'rgba(29, 185, 84, 0.2)');
+      gradient.addColorStop(0.5, 'rgba(29, 185, 84, 0.8)');
+      gradient.addColorStop(1, 'rgba(30, 215, 96, 1)');
+
+      this.canvasCtx.fillStyle = gradient;
+      this.canvasCtx.fillRect(x, height - barHeight, barWidth - 2, barHeight);
+      x += barWidth;
+    }
+  }
+
+  get currentTrack() {
+    return this.queue[this.currentTrackIndex] || null;
+  }
+
+  loadTrack(index, autoPlay = true) {
+    if (index < 0 || index >= this.queue.length) return;
+    this.currentTrackIndex = index;
+    const track = this.currentTrack;
+
+    if (track) {
+      this.audio.src = track.src;
+      this.audio.load();
+      if (autoPlay) {
+        this.play();
+      } else {
+        this.pause();
+      }
+      this.emitTrackChange(track);
+    }
+  }
+
+  play() {
+    if (!this.audio.src && this.queue.length > 0) {
+      this.loadTrack(0, true);
+      return;
+    }
+
+    if (this.audioCtx && this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume();
+    }
+
+    this.audio.play().then(() => {
+      this.isPlaying = true;
+      this.emitStateChange();
+    }).catch(err => {
+      console.warn('Playback interrupted:', err);
+      this.isPlaying = false;
+      this.emitStateChange();
+    });
+  }
+
+  pause() {
+    this.audio.pause();
+    this.isPlaying = false;
+    this.emitStateChange();
+  }
+
+  togglePlay() {
+    if (this.isPlaying) {
+      this.pause();
+    } else {
+      this.play();
+    }
+  }
+
+  seek(seconds) {
+    if (this.audio.duration) {
+      this.audio.currentTime = seconds;
+      this.emitTimeUpdate();
+    }
+  }
+
+  playNext(isAuto = false) {
+    if (this.queue.length === 0) return;
+    let nextIndex = this.currentTrackIndex + 1;
+    if (nextIndex >= this.queue.length) {
+      nextIndex = 0; // Loop queue
+    }
+    this.loadTrack(nextIndex, true);
+  }
+
+  playPrevious() {
+    if (this.queue.length === 0) return;
+    // If current song is > 3 seconds in, restart track
+    if (this.audio.currentTime > 3) {
+      this.seek(0);
+      return;
+    }
+    let prevIndex = this.currentTrackIndex - 1;
+    if (prevIndex < 0) {
+      prevIndex = this.queue.length - 1;
+    }
+    this.loadTrack(prevIndex, true);
+  }
+
+  // --- INDIVIDUAL VOLUME CONTROL ---
+  // Sets individual volume for THIS device only! Does not broadcast to other users.
+  setVolume(value) {
+    this.volume = Math.max(0, Math.min(1, value));
+    localStorage.setItem('hj_individual_volume', this.volume.toString());
+    if (!this.isMuted) {
+      this.audio.volume = this.volume;
+    }
+    this.emitStateChange();
+  }
+
+  toggleMute() {
+    this.isMuted = !this.isMuted;
+    this.audio.volume = this.isMuted ? 0 : this.volume;
+    this.emitStateChange();
+  }
+
+  // --- QUEUE MANAGEMENT ---
+  addToQueue(track) {
+    this.queue.push(track);
+    this.emitQueueChange();
+  }
+
+  removeFromQueue(index) {
+    if (index === this.currentTrackIndex) {
+      this.queue.splice(index, 1);
+      if (this.queue.length === 0) {
+        this.pause();
+        this.audio.src = '';
+      } else {
+        this.loadTrack(Math.min(index, this.queue.length - 1), this.isPlaying);
+      }
+    } else {
+      if (index < this.currentTrackIndex) {
+        this.currentTrackIndex--;
+      }
+      this.queue.splice(index, 1);
+    }
+    this.emitQueueChange();
+  }
+
+  clearQueue() {
+    const current = this.currentTrack;
+    this.queue = current ? [current] : [];
+    this.currentTrackIndex = 0;
+    this.emitQueueChange();
+  }
+
+  // --- SLEEP TIMER ---
+  setSleepTimer(minutes) {
+    if (this.sleepTimerInterval) {
+      clearInterval(this.sleepTimerInterval);
+      this.sleepTimerInterval = null;
+    }
+
+    if (minutes <= 0) {
+      this.sleepTimerDuration = 0;
+      this.emitSleepTimer();
+      return;
+    }
+
+    this.sleepTimerDuration = minutes * 60;
+    this.sleepTimerOriginalVolume = this.volume;
+    this.emitSleepTimer();
+
+    this.sleepTimerInterval = setInterval(() => {
+      this.sleepTimerDuration--;
+
+      // Soft fade-out during final 10 seconds
+      if (this.sleepTimerDuration > 0 && this.sleepTimerDuration <= 10) {
+        const fadeRatio = this.sleepTimerDuration / 10;
+        this.audio.volume = this.sleepTimerOriginalVolume * fadeRatio;
+      }
+
+      if (this.sleepTimerDuration <= 0) {
+        clearInterval(this.sleepTimerInterval);
+        this.sleepTimerInterval = null;
+        this.pause();
+        this.audio.volume = this.sleepTimerOriginalVolume; // reset volume
+        this.sleepTimerDuration = 0;
+      }
+
+      this.emitSleepTimer();
+    }, 1000);
+  }
+
+  // --- CALLBACK EMITTERS ---
+  onTrackChange(cb) { this.onTrackChangeCallbacks.push(cb); }
+  onStateChange(cb) { this.onStateChangeCallbacks.push(cb); }
+  onQueueChange(cb) { this.onQueueChangeCallbacks.push(cb); }
+  onTimeUpdate(cb) { this.onTimeUpdateCallbacks.push(cb); }
+  onSleepTimer(cb) { this.onSleepTimerCallbacks.push(cb); }
+
+  emitTrackChange(track) { this.onTrackChangeCallbacks.forEach(cb => cb(track)); }
+  emitStateChange() {
+    const state = {
+      isPlaying: this.isPlaying,
+      volume: this.volume,
+      isMuted: this.isMuted,
+      currentTime: this.audio.currentTime || 0,
+      duration: this.audio.duration || (this.currentTrack ? this.currentTrack.duration : 0)
+    };
+    this.onStateChangeCallbacks.forEach(cb => cb(state));
+  }
+  emitQueueChange() { this.onQueueChangeCallbacks.forEach(cb => cb(this.queue, this.currentTrackIndex)); }
+  emitTimeUpdate() {
+    const timeData = {
+      currentTime: this.audio.currentTime || 0,
+      duration: this.audio.duration || (this.currentTrack ? this.currentTrack.duration : 0)
+    };
+    this.onTimeUpdateCallbacks.forEach(cb => cb(timeData));
+  }
+  emitSleepTimer() { this.onSleepTimerCallbacks.forEach(cb => cb(this.sleepTimerDuration)); }
+}
