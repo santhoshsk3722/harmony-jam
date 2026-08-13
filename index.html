@@ -63,6 +63,26 @@
       
       <!-- TAB 1: MUSIC LIBRARY (HOME) -->
       <div class="tab-pane active" id="tabHome">
+        <!-- Direct YouTube Search Bar -->
+        <div style="margin-bottom: 20px;">
+          <h2 class="section-title" style="margin-top: 0;">Search YouTube Music</h2>
+          <div class="input-group">
+            <input type="text" id="ytSearchInput" class="styled-input" placeholder="Search YouTube songs, artists, hits (e.g. Coldplay, Lofi, Pop)..." style="font-size: 0.9rem;">
+            <button class="action-btn" id="ytSearchBtn" style="padding: 10px 18px;">
+              <i data-lucide="search"></i> Search
+            </button>
+          </div>
+        </div>
+
+        <!-- YouTube Search Results Container (Hidden until search) -->
+        <div id="searchResultsSection" style="display: none; margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: var(--accent-green-bright);">YouTube Search Results</h3>
+            <button id="closeSearchBtn" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.8rem;">Clear Results</button>
+          </div>
+          <div class="grid-cards" id="searchResultsGrid"></div>
+        </div>
+
         <h2 class="section-title">Curated Playlists</h2>
         <div class="grid-cards" id="tracksGrid">
           <!-- Rendered dynamically by app.js -->
@@ -372,6 +392,6 @@
   </div>
 
   <!-- Application Logic Modules -->
-  <script type="module" src="js/app.js?v=2.2.0"></script>
+  <script type="module" src="js/app.js?v=2.3.0"></script>
 </body>
 </html>

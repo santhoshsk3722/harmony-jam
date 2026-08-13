@@ -1,7 +1,7 @@
 import { MusicPlayer } from './player.js';
 import { RoomManager } from './room.js';
 import { AppUpdater } from './updater.js';
-import { DEFAULT_TRACKS, createCustomTrack, createLocalFileTrack } from './tracks.js';
+import { DEFAULT_TRACKS, createCustomTrack, createLocalFileTrack, searchYouTubeSongs } from './tracks.js';
 
 class HarmonyJamApp {
   constructor() {
@@ -32,6 +32,43 @@ class HarmonyJamApp {
         this.switchTab(tabId);
       });
     });
+
+    // --- DIRECT YOUTUBE SEARCH EVENT LISTENERS ---
+    const ytSearchBtn = document.getElementById('ytSearchBtn');
+    const ytSearchInput = document.getElementById('ytSearchInput');
+    const closeSearchBtn = document.getElementById('closeSearchBtn');
+
+    const handleYtSearch = async () => {
+      const query = ytSearchInput.value.trim();
+      if (!query) return;
+
+      ytSearchBtn.innerText = 'Searching...';
+      try {
+        const results = await searchYouTubeSongs(query);
+        this.renderSearchResults(results);
+      } catch (e) {
+        alert('Search error: ' + e.message);
+      } finally {
+        ytSearchBtn.innerHTML = '<i data-lucide="search"></i> Search';
+        if (window.lucide) window.lucide.createIcons();
+      }
+    };
+
+    if (ytSearchBtn) ytSearchBtn.addEventListener('click', handleYtSearch);
+    if (ytSearchInput) {
+      ytSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleYtSearch();
+        }
+      });
+    }
+    if (closeSearchBtn) {
+      closeSearchBtn.addEventListener('click', () => {
+        document.getElementById('searchResultsSection').style.display = 'none';
+        ytSearchInput.value = '';
+      });
+    }
 
     // --- FULL PLAYER DRAWER EXPAND / CLOSE ---
     const expandArea = document.getElementById('expandPlayerArea');
@@ -395,6 +432,75 @@ class HarmonyJamApp {
     document.getElementById('dismissUpdateBtn').addEventListener('click', () => {
       document.getElementById('updateModal').classList.remove('active');
     });
+  }
+
+  renderSearchResults(results) {
+    const section = document.getElementById('searchResultsSection');
+    const grid = document.getElementById('searchResultsGrid');
+    if (!section || !grid) return;
+
+    grid.innerHTML = '';
+    if (!results || results.length === 0) {
+      grid.innerHTML = `<div style="color: var(--text-secondary); padding: 12px; grid-column: span 2;">No YouTube songs found for your search query. Try another keyword!</div>`;
+      section.style.display = 'block';
+      return;
+    }
+
+    results.forEach((track) => {
+      const card = document.createElement('div');
+      card.className = 'music-card';
+      card.innerHTML = `
+        <div class="card-img-wrapper">
+          <img src="${track.cover}" alt="${track.title}" loading="lazy">
+          <span style="position:absolute; top:6px; left:6px; background:#ff0000; color:#fff; font-size:0.65rem; font-weight:800; padding:2px 6px; border-radius:4px; z-index:2;">YOUTUBE</span>
+          <button class="play-hover-btn">
+            <i data-lucide="play"></i>
+          </button>
+        </div>
+        <div class="card-title">${track.title}</div>
+        <div class="card-subtitle">${track.artist}</div>
+        <div style="display: flex; gap: 4px; margin-top: 8px;">
+          <button class="action-btn play-now-btn" style="flex:1; font-size:0.75rem; padding:6px 8px; justify-content:center;">
+            <i data-lucide="play" style="width:12px;"></i> Play
+          </button>
+          <button class="action-btn add-queue-btn" style="flex:1; font-size:0.75rem; padding:6px 8px; justify-content:center; background:rgba(255,255,255,0.1); color:#fff;">
+            <i data-lucide="plus" style="width:12px;"></i> Queue
+          </button>
+        </div>
+      `;
+
+      // Play Now Button
+      card.querySelector('.play-now-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.room.roomId) {
+          this.room.syncQueueAdd(track);
+          const newIndex = this.player.queue.length - 1;
+          this.room.syncTrackChange(newIndex);
+        } else {
+          this.player.addToQueue(track);
+          const newIndex = this.player.queue.length - 1;
+          this.player.loadTrack(newIndex, true);
+        }
+        this.renderQueue();
+      });
+
+      // Add to Queue Button
+      card.querySelector('.add-queue-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.room.roomId) {
+          this.room.syncQueueAdd(track);
+        } else {
+          this.player.addToQueue(track);
+        }
+        this.renderQueue();
+        alert(`Added "${track.title}" to Queue!`);
+      });
+
+      grid.appendChild(card);
+    });
+
+    section.style.display = 'block';
+    if (window.lucide) window.lucide.createIcons();
   }
 
   renderTracksGrid() {

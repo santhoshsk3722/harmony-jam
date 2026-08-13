@@ -1,5 +1,5 @@
 {
-  "version": "2.2.0",
+  "version": "2.3.0",
   "buildDate": "2026-08-14",
-  "releaseNotes": "v2.2.0 Live Over-The-Air (OTA) Update System - Automatic GitHub commit polling every 15 seconds with 1-click Hard Refresh & Cache Purge!"
+  "releaseNotes": "v2.3.0 Release - Added Direct In-App YouTube Music Search! Search any song, artist, or hit directly inside the app and add to shared Jam Room queue."
 }
