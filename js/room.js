@@ -1,4 +1,4 @@
-// Harmony Jam Global Multi-Engine Real-Time Sync & Presence Engine
+// Harmony Jam Bulletproof Multi-Broker Global Real-Time Sync & Presence Engine
 
 export class RoomManager {
   constructor(player) {
@@ -17,25 +17,20 @@ export class RoomManager {
 
     this.participants = new Map(); // id -> { id, name, isHost, avatar, lastSeen }
 
-    // MQTT Client & BroadcastChannel instances
+    // Realtime Communication Clients
     this.mqttClient = null;
     this.broadcastChannel = null;
 
     this.onRoomStateCallbacks = [];
     this.onParticipantsCallbacks = [];
 
-    // Periodic Heartbeat & Presence Ping (Every 2 seconds)
+    // Continuous 2-second Presence Ping & Host Sync Heartbeat
     setInterval(() => {
       if (this.roomId) {
         // Send presence ping
         this.broadcastAction({
           type: 'PRESENCE_PING',
-          user: {
-            id: this.userId,
-            name: this.isHost ? `${this.userName} (Host)` : this.userName,
-            isHost: this.isHost,
-            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
-          }
+          user: this.getSelfUserObj()
         });
 
         // Host periodic sync & heartbeat
@@ -49,11 +44,11 @@ export class RoomManager {
           });
         }
 
-        // Clean up stale participants (no ping for > 10 seconds)
+        // Clean up inactive participants (> 12 seconds)
         const now = Date.now();
         let changed = false;
         this.participants.forEach((p, id) => {
-          if (id !== this.userId && p.lastSeen && (now - p.lastSeen > 10000)) {
+          if (id !== this.userId && p.lastSeen && (now - p.lastSeen > 12000)) {
             this.participants.delete(id);
             changed = true;
           }
@@ -63,60 +58,109 @@ export class RoomManager {
     }, 2000);
   }
 
+  getSelfUserObj() {
+    return {
+      id: this.userId,
+      name: this.isHost ? `${this.userName} (Host)` : this.userName,
+      isHost: this.isHost,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`,
+      lastSeen: Date.now()
+    };
+  }
+
   generateRoomCode() {
     return Math.floor(1000 + Math.random() * 9000).toString();
   }
 
+  // Connect to EMQX / HiveMQ public MQTT brokers
   initMqtt(code) {
     return new Promise((resolve) => {
       if (typeof window.mqtt === 'undefined') {
-        console.warn('[RoomSync] MQTT.js library not found, using fallback');
+        console.warn('[RoomSync] MQTT library not available');
         return resolve();
       }
 
-      const topic = `harmonyjam/v1/room/${code}`;
-      const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+      // Unique App-specific topic namespace to avoid global collisions
+      const topic = `santhoshsk3722_harmonyjam_v2_room_${code}`;
 
-      try {
-        if (this.mqttClient) {
-          try { this.mqttClient.end(true); } catch(e){}
+      // Try EMQX primary broker, fallback to HiveMQ
+      const brokers = [
+        'wss://broker.emqx.io:8084/mqtt',
+        'wss://broker.hivemq.com:8884/mqtt'
+      ];
+
+      const tryConnect = (brokerIndex) => {
+        if (brokerIndex >= brokers.length) {
+          console.warn('[MQTT] All brokers exhausted, using local fallback');
+          return resolve();
         }
 
-        this.mqttClient = window.mqtt.connect(brokerUrl, {
-          clientId: `hj_${this.userId}_${Math.floor(Math.random()*1000)}`,
-          keepalive: 30,
-          clean: true,
-          reconnectPeriod: 2000
-        });
+        const brokerUrl = brokers[brokerIndex];
+        console.log(`[MQTT] Connecting to broker [${brokerIndex + 1}/${brokers.length}]:`, brokerUrl);
 
-        this.mqttClient.on('connect', () => {
-          console.log('[MQTT] Connected to global relay broker topic:', topic);
-          this.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
-            if (!err) console.log('[MQTT] Subscribed to topic:', topic);
-            resolve();
-          });
-        });
-
-        this.mqttClient.on('message', (t, message) => {
-          try {
-            const payload = JSON.parse(message.toString());
-            this.handleIncomingAction(payload, payload.senderId);
-          } catch (e) {
-            console.warn('[MQTT] Parsing error:', e);
+        try {
+          if (this.mqttClient) {
+            try { this.mqttClient.end(true); } catch(e){}
           }
-        });
 
-        this.mqttClient.on('error', (err) => {
-          console.warn('[MQTT] Broker connection warning:', err);
-          resolve();
-        });
+          const randomClientId = `hj_${this.userId}_${Math.floor(Math.random() * 100000)}`;
 
-        setTimeout(() => resolve(), 2000);
+          this.mqttClient = window.mqtt.connect(brokerUrl, {
+            clientId: randomClientId,
+            keepalive: 20,
+            clean: true,
+            connectTimeout: 4000,
+            reconnectPeriod: 2000
+          });
 
-      } catch (e) {
-        console.warn('[MQTT] Exception during init:', e);
-        resolve();
-      }
+          let resolved = false;
+
+          this.mqttClient.on('connect', () => {
+            console.log('[MQTT] Connected successfully to broker:', brokerUrl);
+            this.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+              if (!err) {
+                console.log('[MQTT] Subscribed to unique room topic:', topic);
+              }
+              if (!resolved) {
+                resolved = true;
+                resolve();
+              }
+            });
+          });
+
+          this.mqttClient.on('message', (t, message) => {
+            try {
+              const payload = JSON.parse(message.toString());
+              this.handleIncomingAction(payload, payload.senderId);
+            } catch (e) {
+              console.warn('[MQTT] Parse error:', e);
+            }
+          });
+
+          this.mqttClient.on('error', (err) => {
+            console.warn('[MQTT] Broker error:', err);
+            if (!resolved) {
+              resolved = true;
+              tryConnect(brokerIndex + 1);
+            }
+          });
+
+          // Timeout safety
+          setTimeout(() => {
+            if (!resolved && (!this.mqttClient || !this.mqttClient.connected)) {
+              console.warn('[MQTT] Connection timeout, trying next broker...');
+              resolved = true;
+              tryConnect(brokerIndex + 1);
+            }
+          }, 4500);
+
+        } catch (e) {
+          console.warn('[MQTT] Connection exception:', e);
+          tryConnect(brokerIndex + 1);
+        }
+      };
+
+      tryConnect(0);
     });
   }
 
@@ -125,12 +169,12 @@ export class RoomManager {
       try { this.broadcastChannel.close(); } catch(e){}
     }
     try {
-      this.broadcastChannel = new BroadcastChannel(`harmony_jam_room_${code}`);
+      this.broadcastChannel = new BroadcastChannel(`harmony_jam_v2_room_${code}`);
       this.broadcastChannel.onmessage = (event) => {
         this.handleIncomingAction(event.data, event.data.senderId);
       };
     } catch (e) {
-      console.warn('BroadcastChannel fallback');
+      console.warn('BroadcastChannel not supported');
     }
   }
 
@@ -143,23 +187,18 @@ export class RoomManager {
       this.initBroadcastChannel(code);
 
       this.participants.clear();
-      this.participants.set(this.userId, {
-        id: this.userId,
-        name: this.userName + ' (Host)',
-        isHost: true,
-        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`,
-        lastSeen: Date.now()
-      });
+      const myObj = this.getSelfUserObj();
+      this.participants.set(this.userId, myObj);
 
       this.initMqtt(code).then(() => {
-        console.log('[RoomSync] Host created room:', code);
+        console.log('[RoomSync] Host initialized room code:', code);
         this.emitParticipants();
         this.emitRoomState();
-        
-        // Announce presence immediately
+
+        // Announce Host Presence
         this.broadcastAction({
           type: 'PRESENCE_PING',
-          user: this.participants.get(this.userId)
+          user: myObj
         });
 
         resolve(code);
@@ -180,27 +219,21 @@ export class RoomManager {
       this.initBroadcastChannel(cleanCode);
 
       this.participants.clear();
-      const myUserObj = {
-        id: this.userId,
-        name: this.userName,
-        isHost: false,
-        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`,
-        lastSeen: Date.now()
-      };
-      this.participants.set(this.userId, myUserObj);
+      const myObj = this.getSelfUserObj();
+      this.participants.set(this.userId, myObj);
 
       this.initMqtt(cleanCode).then(() => {
-        console.log('[RoomSync] Joined room:', cleanCode);
+        console.log('[RoomSync] Peer joined room code:', cleanCode);
 
-        // Announce presence & request full state
+        // Send JOIN_ROOM and REQUEST_STATE
         this.broadcastAction({
-          type: 'PRESENCE_PING',
-          user: myUserObj
+          type: 'JOIN_ROOM',
+          user: myObj
         });
 
         this.broadcastAction({
           type: 'REQUEST_STATE',
-          user: myUserObj
+          user: myObj
         });
 
         this.emitParticipants();
@@ -220,9 +253,9 @@ export class RoomManager {
       timestamp: Date.now()
     };
 
-    // 1. MQTT WebSocket Relay
+    // 1. Send via MQTT WebSocket Relay
     if (this.mqttClient && this.mqttClient.connected) {
-      const topic = `harmonyjam/v1/room/${this.roomId}`;
+      const topic = `santhoshsk3722_harmonyjam_v2_room_${this.roomId}`;
       try {
         this.mqttClient.publish(topic, JSON.stringify(fullPayload));
       } catch (e) {
@@ -230,7 +263,7 @@ export class RoomManager {
       }
     }
 
-    // 2. BroadcastChannel Relay
+    // 2. Send via BroadcastChannel for local tabs
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(fullPayload);
@@ -244,7 +277,7 @@ export class RoomManager {
     if (!payload || !payload.type) return;
     if (senderId === this.userId) return; // Ignore self messages
 
-    // 1. Handle presence ping from any user in room
+    // 1. Record incoming user presence
     if (payload.user && payload.user.id && payload.user.id !== this.userId) {
       this.participants.set(payload.user.id, {
         ...payload.user,
@@ -254,15 +287,21 @@ export class RoomManager {
     }
 
     switch (payload.type) {
-      case 'PRESENCE_PING':
-        // Peer/Host announced presence, already recorded above
-        break;
+      case 'JOIN_ROOM':
+        // A new peer has joined! Add peer to participant list
+        if (payload.user) {
+          this.participants.set(payload.user.id, {
+            ...payload.user,
+            lastSeen: Date.now()
+          });
+          this.emitParticipants();
+        }
 
-      case 'REQUEST_STATE':
+        // If I am Host, respond with HOST_WELCOME state
         if (this.isHost) {
-          // Host replies with full state snapshot + current participants
           this.broadcastAction({
-            type: 'STATE_RESPONSE',
+            type: 'HOST_WELCOME',
+            targetId: payload.user ? payload.user.id : null,
             queue: this.player.queue,
             currentTrackIndex: this.player.currentTrackIndex,
             isPlaying: this.player.isPlaying,
@@ -273,6 +312,21 @@ export class RoomManager {
         }
         break;
 
+      case 'REQUEST_STATE':
+        if (this.isHost) {
+          this.broadcastAction({
+            type: 'HOST_WELCOME',
+            queue: this.player.queue,
+            currentTrackIndex: this.player.currentTrackIndex,
+            isPlaying: this.player.isPlaying,
+            currentTime: this.player.getCurrentTime(),
+            sleepTimerDuration: this.player.sleepTimerDuration,
+            participants: Array.from(this.participants.values())
+          });
+        }
+        break;
+
+      case 'HOST_WELCOME':
       case 'STATE_RESPONSE':
         if (payload.queue) {
           this.player.queue = payload.queue;
@@ -294,6 +348,10 @@ export class RoomManager {
           });
           this.emitParticipants();
         }
+        break;
+
+      case 'PRESENCE_PING':
+        // User presence updated above
         break;
 
       case 'SYNC_PLAY':
