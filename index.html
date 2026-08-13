@@ -108,15 +108,15 @@
             </button>
 
             <div style="display: flex; gap: 8px;">
-              <input type="text" id="joinCodeInput" class="styled-input" placeholder="Enter Room Code (e.g. HJ-8492)" style="text-align: center; text-transform: uppercase;">
-              <button class="action-btn" id="joinRoomBtn">Join</button>
+              <input type="text" id="joinCodeInput" class="styled-input" placeholder="4-Digit Code (e.g. 4892)" inputmode="numeric" pattern="[0-9]*" maxlength="4" style="text-align: center; font-size: 1.1rem; letter-spacing: 2px; font-weight: 700;">
+              <button class="action-btn" id="joinRoomBtn" style="padding: 10px 20px;">Join Room</button>
             </div>
           </div>
 
           <div id="roomJoinedState" style="display: none;">
             <div class="room-status-header">
               <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Active Jam Room</span>
-              <div class="room-code-display" id="activeRoomCode">HJ-0000</div>
+              <div class="room-code-display" id="activeRoomCode">0000</div>
               <p style="font-size: 0.8rem; color: var(--accent-green-bright);" id="roomRoleText">Host Session</p>
             </div>
 

@@ -202,9 +202,12 @@ class HarmonyJamApp {
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
     if (roomParam) {
-      this.switchTab('tabRoom');
-      joinCodeInput.value = roomParam;
-      this.room.joinRoom(roomParam);
+      const cleanParam = roomParam.replace(/[^0-9]/g, '');
+      if (cleanParam) {
+        this.switchTab('tabRoom');
+        joinCodeInput.value = cleanParam;
+        this.room.joinRoom(cleanParam);
+      }
     }
 
     // --- SLEEP TIMER MODAL ---

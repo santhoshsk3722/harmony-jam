@@ -1,11 +1,11 @@
-// PeerJS P2P & BroadcastChannel Sync Engine for Harmony Jam
+// PeerJS P2P & Multi-Layer Sync Engine for Harmony Jam
 
 export class RoomManager {
   constructor(player) {
     this.player = player;
     this.peer = null;
     this.peerId = null;
-    this.roomId = null;
+    this.roomId = null; // Clean 4-digit code (e.g. "1234")
     this.isHost = false;
     this.connections = [];
     this.broadcastChannel = null;
@@ -16,41 +16,51 @@ export class RoomManager {
     this.onRoomStateCallbacks = [];
     this.onParticipantsCallbacks = [];
 
-    this.initBroadcastChannel();
-
-    // Auto Periodic Drift Monitor (Host -> Peers)
+    // Periodic Heartbeat & Drift Monitor (Host -> Peers)
     setInterval(() => {
-      if (this.isHost && this.roomId && this.player.isPlaying) {
+      if (this.isHost && this.roomId) {
         this.broadcastAction({
           type: 'DRIFT_PULSE',
           currentTime: this.player.getCurrentTime(),
-          trackIndex: this.player.currentTrackIndex
+          trackIndex: this.player.currentTrackIndex,
+          isPlaying: this.player.isPlaying
         });
       }
-    }, 4000);
+    }, 3000);
   }
 
-  initBroadcastChannel() {
+  // Format clean 4-digit room code (e.g. "4892")
+  generateRoomCode() {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
+  // Format safe PeerJS ID for WebRTC compatibility
+  getPeerJsId(code) {
+    const cleanCode = code.replace(/[^0-9]/g, '');
+    return `harmonyjam_v1_${cleanCode}`;
+  }
+
+  initBroadcastChannel(code) {
+    if (this.broadcastChannel) {
+      try { this.broadcastChannel.close(); } catch(e){}
+    }
     try {
-      this.broadcastChannel = new BroadcastChannel('harmony_jam_channel');
+      this.broadcastChannel = new BroadcastChannel(`harmony_jam_room_${code}`);
       this.broadcastChannel.onmessage = (event) => {
         this.handleIncomingAction(event.data, 'broadcast');
       };
     } catch (e) {
-      console.warn('BroadcastChannel fallback setup');
+      console.warn('[RoomSync] BroadcastChannel fallback setup:', e);
     }
   }
 
-  generateRoomCode() {
-    const num = Math.floor(1000 + Math.random() * 9000);
-    return `HJ-${num}`;
-  }
-
-  createRoom() {
+  createRoom(customCode = null) {
     return new Promise((resolve, reject) => {
-      const code = this.generateRoomCode();
+      const code = customCode ? customCode.trim() : this.generateRoomCode();
       this.roomId = code;
       this.isHost = true;
+
+      this.initBroadcastChannel(code);
 
       this.participants.clear();
       this.participants.set('self', {
@@ -60,19 +70,34 @@ export class RoomManager {
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
       });
 
-      this.initPeerJS(code).then(() => {
+      const peerJsId = this.getPeerJsId(code);
+
+      this.initPeerJS(peerJsId).then(() => {
+        console.log('[RoomSync] Room created successfully as Host. Room Code:', code);
         this.emitParticipants();
         this.emitRoomState();
         resolve(code);
-      }).catch(reject);
+      }).catch(err => {
+        console.warn('[RoomSync] PeerJS server init warning, proceeding with BroadcastChannel:', err);
+        this.emitParticipants();
+        this.emitRoomState();
+        resolve(code);
+      });
     });
   }
 
-  joinRoom(code) {
+  joinRoom(inputCode) {
     return new Promise((resolve, reject) => {
-      const formattedCode = code.trim().toUpperCase();
-      this.roomId = formattedCode;
+      // Clean input (strip letters, hyphens, spaces)
+      const cleanCode = inputCode.toString().replace(/[^0-9]/g, '');
+      if (!cleanCode || cleanCode.length < 3) {
+        return reject(new Error('Please enter a valid numeric room code (e.g. 4892)'));
+      }
+
+      this.roomId = cleanCode;
       this.isHost = false;
+
+      this.initBroadcastChannel(cleanCode);
 
       this.participants.clear();
       this.participants.set('self', {
@@ -82,33 +107,62 @@ export class RoomManager {
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(this.userName)}`
       });
 
+      const hostPeerJsId = this.getPeerJsId(cleanCode);
+
       this.initPeerJS().then(() => {
-        const conn = this.peer.connect(formattedCode);
-        this.setupConnection(conn);
+        let connected = false;
 
-        conn.on('open', () => {
-          conn.send({
-            type: 'REQUEST_STATE',
-            user: { name: this.userName, avatar: this.participants.get('self').avatar }
-          });
-          this.emitParticipants();
-          this.emitRoomState();
-          resolve(formattedCode);
-        });
+        const attemptConnect = () => {
+          if (connected) return;
+          try {
+            console.log('[RoomSync] Connecting to Host Peer ID:', hostPeerJsId);
+            const conn = this.peer.connect(hostPeerJsId, { reliable: true });
+            this.setupConnection(conn);
 
-        conn.on('error', () => {
-          this.sendBroadcast({
-            type: 'REQUEST_STATE',
-            user: { name: this.userName, avatar: this.participants.get('self').avatar }
-          });
-          resolve(formattedCode);
-        });
-      }).catch(() => {
+            conn.on('open', () => {
+              connected = true;
+              console.log('[RoomSync] WebRTC Connection Established with Host!');
+              conn.send({
+                type: 'REQUEST_STATE',
+                user: { name: this.userName, avatar: this.participants.get('self').avatar }
+              });
+              this.emitParticipants();
+              this.emitRoomState();
+              resolve(cleanCode);
+            });
+          } catch (e) {
+            console.warn('[RoomSync] Connection attempt exception:', e);
+          }
+        };
+
+        attemptConnect();
+
+        // Broadcast fallback request immediately for local/LAN peers
         this.sendBroadcast({
           type: 'REQUEST_STATE',
           user: { name: this.userName, avatar: this.participants.get('self').avatar }
         });
-        resolve(formattedCode);
+
+        // Retry connection at 1.5s if not connected yet
+        setTimeout(() => {
+          if (!connected) {
+            console.log('[RoomSync] Retrying PeerJS connection...');
+            attemptConnect();
+          }
+          this.emitParticipants();
+          this.emitRoomState();
+          resolve(cleanCode);
+        }, 1500);
+
+      }).catch(err => {
+        console.warn('[RoomSync] PeerJS client init fallback:', err);
+        this.sendBroadcast({
+          type: 'REQUEST_STATE',
+          user: { name: this.userName, avatar: this.participants.get('self').avatar }
+        });
+        this.emitParticipants();
+        this.emitRoomState();
+        resolve(cleanCode);
       });
     });
   }
@@ -119,21 +173,39 @@ export class RoomManager {
         return resolve();
       }
       try {
-        this.peer = customId ? new window.Peer(customId) : new window.Peer();
+        if (this.peer) {
+          try { this.peer.destroy(); } catch(e){}
+        }
+
+        const peerOpts = {
+          debug: 1,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        };
+
+        this.peer = customId ? new window.Peer(customId, peerOpts) : new window.Peer(peerOpts);
 
         this.peer.on('open', (id) => {
           this.peerId = id;
+          console.log('[PeerJS] Online with Peer ID:', id);
           resolve();
         });
 
         this.peer.on('connection', (conn) => {
+          console.log('[PeerJS] Incoming peer connection:', conn.peer);
           this.setupConnection(conn);
         });
 
-        this.peer.on('error', () => {
+        this.peer.on('error', (err) => {
+          console.warn('[PeerJS] Error:', err.type);
           resolve();
         });
       } catch (e) {
+        console.warn('[PeerJS] Exception:', e);
         resolve();
       }
     });
@@ -148,7 +220,7 @@ export class RoomManager {
 
     conn.on('close', () => {
       this.connections = this.connections.filter(c => c !== conn);
-      this.participants.delete(conn.peer);
+      if (conn.peer) this.participants.delete(conn.peer);
       this.emitParticipants();
     });
   }
@@ -158,7 +230,7 @@ export class RoomManager {
 
     this.connections.forEach(conn => {
       if (conn.open) {
-        conn.send(actionPayload);
+        try { conn.send(actionPayload); } catch(e){}
       }
     });
 
@@ -183,17 +255,18 @@ export class RoomManager {
     if (!payload || !payload.type) return;
     if (payload.senderPeerId && payload.senderPeerId === (this.peerId || 'tab_' + this.userName)) return;
 
-    console.log('[RoomSync] Action received:', payload.type, payload);
+    console.log('[RoomSync] Action received:', payload.type);
 
     switch (payload.type) {
       case 'REQUEST_STATE':
         if (this.isHost) {
-          this.participants.set(senderId, {
+          const participantObj = {
             id: senderId,
-            name: payload.user.name,
+            name: payload.user ? payload.user.name : 'Connected Friend',
             isHost: false,
-            avatar: payload.user.avatar
-          });
+            avatar: payload.user ? payload.user.avatar : `https://api.dicebear.com/7.x/bottts/svg?seed=${senderId}`
+          };
+          this.participants.set(senderId, participantObj);
           this.emitParticipants();
 
           const stateSnapshot = {
@@ -231,17 +304,12 @@ export class RoomManager {
         break;
 
       case 'SYNC_PLAY':
-        // 1. Switch track ONLY if track index changed
         if (payload.trackIndex !== undefined && payload.trackIndex !== this.player.currentTrackIndex) {
           this.player.loadTrack(payload.trackIndex, true);
         }
-
-        // 2. Play if not playing
         if (!this.player.isPlaying) {
           this.player.play();
         }
-
-        // 3. Align position if drift > 1.2 seconds and payload position is valid
         if (payload.currentTime !== undefined && payload.currentTime >= 0) {
           const diff = Math.abs(this.player.getCurrentTime() - payload.currentTime);
           if (diff > 1.2) {
@@ -272,15 +340,11 @@ export class RoomManager {
         if (payload.trackIndex === this.player.currentTrackIndex && payload.currentTime !== undefined) {
           const drift = Math.abs(this.player.getCurrentTime() - payload.currentTime);
           if (drift > 1.5) {
-            console.log('[Sync] Aligning drift:', drift, 'sec');
             this.player.seek(payload.currentTime);
           }
-        }
-        break;
-
-      case 'SYNC_TRACK':
-        if (payload.trackIndex !== undefined && payload.trackIndex !== this.player.currentTrackIndex) {
-          this.player.loadTrack(payload.trackIndex, payload.isPlaying !== false);
+          if (payload.isPlaying !== undefined && payload.isPlaying !== this.player.isPlaying) {
+            payload.isPlaying ? this.player.play() : this.player.pause();
+          }
         }
         break;
 
@@ -390,8 +454,12 @@ export class RoomManager {
 
   leaveRoom() {
     if (this.peer) {
-      this.peer.destroy();
+      try { this.peer.destroy(); } catch(e){}
       this.peer = null;
+    }
+    if (this.broadcastChannel) {
+      try { this.broadcastChannel.close(); } catch(e){}
+      this.broadcastChannel = null;
     }
     this.roomId = null;
     this.isHost = false;
