@@ -486,6 +486,9 @@ class HarmonyJamApp {
 
     document.getElementById('dismissUpdateBtn').addEventListener('click', () => {
       document.getElementById('updateModal').classList.remove('active');
+      if (this.updater.notifiedSha) {
+        sessionStorage.setItem('hj_dismissed_sha', this.updater.notifiedSha);
+      }
     });
   }
 

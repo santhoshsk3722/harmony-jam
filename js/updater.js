@@ -2,8 +2,9 @@
 
 export class AppUpdater {
   constructor() {
-    this.currentVersion = '2.1.0';
+    this.currentVersion = '3.1.0';
     this.currentCommitSha = sessionStorage.getItem('hj_current_commit_sha') || null;
+    this.notifiedSha = sessionStorage.getItem('hj_notified_sha') || null;
     this.latestVersion = null;
     this.releaseUrl = null;
     this.swRegistration = null;
@@ -28,7 +29,7 @@ export class AppUpdater {
       const res = await fetch('./version.json?t=' + Date.now());
       if (res.ok) {
         const data = await res.json();
-        this.currentVersion = data.version || '2.1.0';
+        this.currentVersion = data.version || '3.1.0';
       }
     } catch (e) {
       console.warn('Could not read version.json:', e);
@@ -38,36 +39,18 @@ export class AppUpdater {
     if ('serviceWorker' in navigator) {
       try {
         this.swRegistration = await navigator.serviceWorker.register('./sw.js');
-        
-        // Listen for SW controller change or new SW installed
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          console.log('[SW] Controller changed - new version active!');
-          this.notifyUpdate('New software update deployed to GitHub!');
-        });
-
-        this.swRegistration.addEventListener('updatefound', () => {
-          const newWorker = this.swRegistration.installing;
-          if (newWorker) {
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('[SW] New version installed in background!');
-                this.notifyUpdate('New software update deployed to GitHub!');
-              }
-            });
-          }
-        });
       } catch (err) {
         console.warn('[SW] Registration warning:', err);
       }
     }
 
-    // 3. Perform initial check
+    // 3. Initial check
     this.checkForGitHubUpdates();
 
-    // 4. Poll for new GitHub pushes every 15 seconds
+    // 4. Poll for new GitHub pushes conservatively every 45 seconds
     setInterval(() => {
       this.pollForNewPush();
-    }, 15000);
+    }, 45000);
   }
 
   setGitHubRepo(repoString) {
@@ -79,37 +62,31 @@ export class AppUpdater {
   }
 
   async pollForNewPush() {
-    // Check version.json manifest first
-    try {
-      const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.version && this.isNewerVersion(data.version, this.currentVersion)) {
-          this.latestVersion = data.version;
-          this.notifyUpdate(`New version v${data.version} deployed to GitHub!`, data.releaseNotes);
-          return;
-        }
-      }
-    } catch (e) {}
-
-    // Check GitHub Commits API for latest commit SHA on main
     if (!this.githubRepo) return;
+
     try {
+      // Query GitHub Commits API for the latest commit SHA on main branch
       const apiRes = await fetch(`https://api.github.com/repos/${this.githubRepo}/commits/main?t=` + Date.now(), {
         cache: 'no-store'
       });
+
       if (apiRes.ok) {
         const commitData = await apiRes.json();
         const latestSha = commitData.sha ? commitData.sha.substring(0, 7) : null;
 
         if (latestSha) {
+          // First load initialization
           if (!this.currentCommitSha) {
             this.currentCommitSha = latestSha;
             sessionStorage.setItem('hj_current_commit_sha', latestSha);
-          } else if (latestSha !== this.currentCommitSha) {
+            return;
+          }
+
+          // Trigger ONLY if a genuinely NEW commit SHA was pushed AND not already notified/dismissed!
+          if (latestSha !== this.currentCommitSha && latestSha !== this.notifiedSha) {
             console.log(`[Updater] New push detected on GitHub! Previous: ${this.currentCommitSha}, New: ${latestSha}`);
-            this.currentCommitSha = latestSha;
-            sessionStorage.setItem('hj_current_commit_sha', latestSha);
+            this.notifiedSha = latestSha;
+            sessionStorage.setItem('hj_notified_sha', latestSha);
             
             const message = commitData.commit ? commitData.commit.message : 'New code update pushed to main!';
             this.notifyUpdate(`New update pushed to GitHub (${latestSha})!`, message);
@@ -132,8 +109,10 @@ export class AppUpdater {
         const tag = release.tag_name ? release.tag_name.replace(/^v/, '') : null;
         this.releaseUrl = release.html_url || `https://github.com/${this.githubRepo}`;
 
-        if (tag && this.isNewerVersion(tag, this.currentVersion)) {
+        if (tag && this.isNewerVersion(tag, this.currentVersion) && tag !== this.notifiedSha) {
           this.latestVersion = tag;
+          this.notifiedSha = tag;
+          sessionStorage.setItem('hj_notified_sha', tag);
           this.notifyUpdate(`New Release v${tag} available on GitHub!`, release.body);
           return { available: true, version: tag, notes: release.body };
         }

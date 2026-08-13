@@ -1,5 +1,5 @@
 {
-  "version": "3.1.0",
+  "version": "3.2.0",
   "buildDate": "2026-08-14",
-  "releaseNotes": "v3.1.0 Release - Upgraded to 5-Proxy High Capacity YouTube Search Engine returning up to 25 YouTube songs per query without restrictive filters!"
+  "releaseNotes": "v3.2.0 Release - Suppressed duplicate update popups. Update refresh notification now triggers strictly ONCE when a new code push lands on GitHub!"
 }
