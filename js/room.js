@@ -72,7 +72,6 @@ export class RoomManager {
     return Math.floor(1000 + Math.random() * 9000).toString();
   }
 
-  // Connect to EMQX / HiveMQ public MQTT brokers
   initMqtt(code) {
     return new Promise((resolve) => {
       if (typeof window.mqtt === 'undefined') {
@@ -80,10 +79,7 @@ export class RoomManager {
         return resolve();
       }
 
-      // Unique App-specific topic namespace to avoid global collisions
       const topic = `santhoshsk3722_harmonyjam_v2_room_${code}`;
-
-      // Try EMQX primary broker, fallback to HiveMQ
       const brokers = [
         'wss://broker.emqx.io:8084/mqtt',
         'wss://broker.hivemq.com:8884/mqtt'
@@ -119,7 +115,7 @@ export class RoomManager {
             console.log('[MQTT] Connected successfully to broker:', brokerUrl);
             this.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
               if (!err) {
-                console.log('[MQTT] Subscribed to unique room topic:', topic);
+                console.log('[MQTT] Subscribed to room topic:', topic);
               }
               if (!resolved) {
                 resolved = true;
@@ -145,7 +141,6 @@ export class RoomManager {
             }
           });
 
-          // Timeout safety
           setTimeout(() => {
             if (!resolved && (!this.mqttClient || !this.mqttClient.connected)) {
               console.warn('[MQTT] Connection timeout, trying next broker...');
@@ -195,7 +190,6 @@ export class RoomManager {
         this.emitParticipants();
         this.emitRoomState();
 
-        // Announce Host Presence
         this.broadcastAction({
           type: 'PRESENCE_PING',
           user: myObj
@@ -225,7 +219,6 @@ export class RoomManager {
       this.initMqtt(cleanCode).then(() => {
         console.log('[RoomSync] Peer joined room code:', cleanCode);
 
-        // Send JOIN_ROOM and REQUEST_STATE
         this.broadcastAction({
           type: 'JOIN_ROOM',
           user: myObj
@@ -253,7 +246,6 @@ export class RoomManager {
       timestamp: Date.now()
     };
 
-    // 1. Send via MQTT WebSocket Relay
     if (this.mqttClient && this.mqttClient.connected) {
       const topic = `santhoshsk3722_harmonyjam_v2_room_${this.roomId}`;
       try {
@@ -263,7 +255,6 @@ export class RoomManager {
       }
     }
 
-    // 2. Send via BroadcastChannel for local tabs
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(fullPayload);
@@ -275,9 +266,8 @@ export class RoomManager {
 
   handleIncomingAction(payload, senderId) {
     if (!payload || !payload.type) return;
-    if (senderId === this.userId) return; // Ignore self messages
+    if (senderId === this.userId) return;
 
-    // 1. Record incoming user presence
     if (payload.user && payload.user.id && payload.user.id !== this.userId) {
       this.participants.set(payload.user.id, {
         ...payload.user,
@@ -288,7 +278,6 @@ export class RoomManager {
 
     switch (payload.type) {
       case 'JOIN_ROOM':
-        // A new peer has joined! Add peer to participant list
         if (payload.user) {
           this.participants.set(payload.user.id, {
             ...payload.user,
@@ -297,7 +286,6 @@ export class RoomManager {
           this.emitParticipants();
         }
 
-        // If I am Host, respond with HOST_WELCOME state
         if (this.isHost) {
           this.broadcastAction({
             type: 'HOST_WELCOME',
@@ -350,12 +338,12 @@ export class RoomManager {
         }
         break;
 
-      case 'PRESENCE_PING':
-        // User presence updated above
-        break;
-
       case 'SYNC_PLAY':
-        if (payload.trackIndex !== undefined && payload.trackIndex !== this.player.currentTrackIndex) {
+        if (payload.queue) {
+          this.player.queue = payload.queue;
+          this.player.emitQueueChange();
+        }
+        if (payload.trackIndex !== undefined) {
           this.player.loadTrack(payload.trackIndex, true);
         }
         if (!this.player.isPlaying) {
@@ -430,6 +418,8 @@ export class RoomManager {
     this.broadcastAction({
       type: 'SYNC_PLAY',
       trackIndex: this.player.currentTrackIndex,
+      track: this.player.currentTrack,
+      queue: this.player.queue,
       currentTime: this.player.getCurrentTime()
     });
   }
@@ -465,6 +455,8 @@ export class RoomManager {
     this.broadcastAction({
       type: 'SYNC_PLAY',
       trackIndex: index,
+      track: this.player.queue[index],
+      queue: this.player.queue,
       currentTime: 0
     });
   }

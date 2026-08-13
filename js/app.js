@@ -121,12 +121,16 @@ class HarmonyJamApp {
         const track = createCustomTrack(url);
         if (this.room.roomId) {
           this.room.syncQueueAdd(track);
+          const newIndex = this.player.queue.length - 1;
+          this.room.syncTrackChange(newIndex);
         } else {
           this.player.addToQueue(track);
+          const newIndex = this.player.queue.length - 1;
+          this.player.loadTrack(newIndex, true);
         }
         customUrlInput.value = '';
         this.renderQueue();
-        alert(`Track "${track.title}" added to Queue!`);
+        alert(`Playing track "${track.title}"!`);
       }
     });
 
@@ -165,14 +169,32 @@ class HarmonyJamApp {
       }
     });
 
-    joinRoomBtn.addEventListener('click', async () => {
-      const code = joinCodeInput.value.trim();
+    const triggerJoin = async () => {
+      const rawCode = joinCodeInput.value.trim();
+      const code = rawCode.replace(/[^0-9]/g, '');
       if (code) {
         try {
           await this.room.joinRoom(code);
         } catch (e) {
           alert('Could not join room: ' + e.message);
         }
+      }
+    };
+
+    joinRoomBtn.addEventListener('click', triggerJoin);
+
+    joinCodeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerJoin();
+      }
+    });
+
+    joinCodeInput.addEventListener('input', () => {
+      const cleanVal = joinCodeInput.value.replace(/[^0-9]/g, '');
+      joinCodeInput.value = cleanVal;
+      if (cleanVal.length === 4) {
+        triggerJoin();
       }
     });
 
