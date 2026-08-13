@@ -6,7 +6,16 @@ export class AppUpdater {
     this.latestVersion = null;
     this.releaseUrl = null;
     this.swRegistration = null;
-    this.githubRepo = localStorage.getItem('hj_github_repo') || 'ranji/harmony-jam'; // Default placeholder repo
+    // Auto-detect repo if hosted on github.io (e.g. username.github.io/repo)
+    let autoRepo = 'santhoshsk3722/harmony-jam';
+    if (window.location.hostname.endsWith('.github.io')) {
+      const user = window.location.hostname.split('.')[0];
+      const repoPath = window.location.pathname.split('/')[1];
+      if (user && repoPath) {
+        autoRepo = `${user}/${repoPath}`;
+      }
+    }
+    this.githubRepo = localStorage.getItem('hj_github_repo') || autoRepo;
 
     this.onUpdateAvailableCallbacks = [];
   }
