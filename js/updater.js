@@ -2,7 +2,7 @@
 
 export class AppUpdater {
   constructor() {
-    this.currentVersion = '1.0.0';
+    this.currentVersion = '2.0.0';
     this.latestVersion = null;
     this.releaseUrl = null;
     this.swRegistration = null;

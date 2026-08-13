@@ -225,6 +225,13 @@ export class RoomManager {
       this.player.queue = data;
       this.player.emitQueueChange();
     }
+
+    // Live Emoji Reaction Update
+    if (path.startsWith('/reaction') && typeof data === 'object') {
+      if (data.emoji && data.senderId !== this.userId) {
+        this.emitEmoji(data.emoji, data.senderName);
+      }
+    }
   }
 
   handleFullRoomSnapshot(roomData) {

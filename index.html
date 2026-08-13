@@ -51,7 +51,10 @@
           <i data-lucide="users"></i>
         </button>
       </div>
-    </header>
+    <!-- v2.1.0 Live Update Notification Banner -->
+    <div id="liveVersionBanner" style="background: linear-gradient(90deg, #1db954 0%, #0d7331 100%); color: #fff; font-size: 0.76rem; font-weight: 700; text-align: center; padding: 6px 12px; letter-spacing: 0.5px; z-index: 20;">
+      🚀 v2.1.0 Live Upgrade: Real-Time Emoji Chat & Equalizer Active!
+    </div>
 
     <!-- Main Content Area with Navigation Tabs -->
     <main class="tab-content">
@@ -131,6 +134,18 @@
               <button class="action-btn" id="leaveRoomBtn" style="font-size: 0.8rem; padding: 8px 14px; background: #e63946; color: #fff;">
                 Leave
               </button>
+            </div>
+
+            <!-- v2.1.0 New Feature: Live Emoji Reactions -->
+            <div style="background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px; margin-bottom: 16px; border: 1px solid var(--border-subtle);">
+              <div style="font-size: 0.75rem; color: var(--text-secondary); text-align: left; margin-bottom: 6px; font-weight: 600;">Instant Room Reactions:</div>
+              <div style="display: flex; justify-content: space-around; font-size: 1.4rem;" id="emojiReactionsBar">
+                <span class="emoji-btn" data-emoji="❤️" style="cursor: pointer; transition: transform 0.1s ease;">❤️</span>
+                <span class="emoji-btn" data-emoji="🔥" style="cursor: pointer; transition: transform 0.1s ease;">🔥</span>
+                <span class="emoji-btn" data-emoji="🎵" style="cursor: pointer; transition: transform 0.1s ease;">🎵</span>
+                <span class="emoji-btn" data-emoji="🎉" style="cursor: pointer; transition: transform 0.1s ease;">🎉</span>
+                <span class="emoji-btn" data-emoji="👏" style="cursor: pointer; transition: transform 0.1s ease;">👏</span>
+              </div>
             </div>
 
             <h3 style="font-size: 0.95rem; font-weight: 700; text-align: left; margin-bottom: 10px;">Connected Friends</h3>
@@ -355,6 +370,6 @@
   </div>
 
   <!-- Application Logic Modules -->
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=2.1.0"></script>
 </body>
 </html>
