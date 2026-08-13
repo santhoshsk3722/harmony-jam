@@ -510,6 +510,12 @@ class HarmonyJamApp {
     const container = document.getElementById('participantList');
     container.innerHTML = '';
 
+    const countLabel = document.getElementById('roomRoleText');
+    if (countLabel && this.room.roomId) {
+      countLabel.innerHTML = `<i data-lucide="users" style="width:14px; display:inline-block; vertical-align:middle;"></i> ${list.length} ${list.length === 1 ? 'Person' : 'People'} Connected`;
+      if (window.lucide) window.lucide.createIcons();
+    }
+
     list.forEach(p => {
       const item = document.createElement('div');
       item.className = 'participant-item';
@@ -518,7 +524,7 @@ class HarmonyJamApp {
           <img src="${p.avatar}" class="participant-avatar">
           <span class="participant-name">${p.name}</span>
         </div>
-        ${p.isHost ? '<span class="host-badge">HOST</span>' : '<span style="font-size:0.75rem; color:var(--accent-green-bright);">Connected</span>'}
+        ${p.isHost ? '<span class="host-badge">HOST</span>' : '<span style="font-size:0.75rem; color:var(--accent-green-bright); font-weight:600;">🟢 Active</span>'}
       `;
       container.appendChild(item);
     });
